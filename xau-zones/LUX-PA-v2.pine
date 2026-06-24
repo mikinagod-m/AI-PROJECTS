@@ -66,10 +66,30 @@ revShow = input.bool(true, 'Long-Term Reversal Markers', group = revGroup)
 revSource = input.string('Long Term', '  Confirmed Source', options = ['Micro', 'Short Term', 'Intermediate Term', 'Long Term', 'Macro'], group = revGroup, display = display)
 revMarkerSizeT = input.string('Normal', '  Marker Size', options = ['Tiny', 'Small', 'Normal', 'Large'], group = revGroup, display = display)
 revEarlyShow = input.bool(true, '  Early Reversal Warnings', group = revGroup)
-revEarlyTrendSource = input.string('Long Term', '  Early Trend Source', options = ['Micro', 'Short Term', 'Intermediate Term', 'Long Term', 'Macro'], group = revGroup, display = display)
+revEarlyTrendSource = input.string('Macro', '  Early Trend Source', options = ['Micro', 'Short Term', 'Intermediate Term', 'Long Term', 'Macro'], group = revGroup, display = display)
 revEarlyTriggerSource = input.string('Intermediate Term', '  Early Trigger Source', options = ['Micro', 'Short Term', 'Intermediate Term', 'Long Term', 'Macro'], group = revGroup, display = display)
-revEarlyModeT = input.string('Balanced', '  Early Condition Mode', options = ['Strict', 'Balanced', 'Aggressive'], group = revGroup, display = display)
-revEarlyMicroGate = input.bool(false, '  Require Micro Alignment', group = revGroup, display = display)
+revEarlyIntentT = input.string('Trend Continuation', '  Early Signal Intent', options = ['Trend Continuation', 'Counter-Trend Reversal'], group = revGroup, display = display)
+revEarlyModeT = input.string('Strict', '  Early Condition Mode', options = ['Strict', 'Balanced', 'Aggressive'], group = revGroup, display = display)
+revEarlyMicroGate = input.bool(true, '  Require Micro Alignment', group = revGroup, display = display)
+revEarlyRequireOppTrend = input.bool(true, '  Require Strict Trend Context', group = revGroup, display = display)
+revEarlyRequireOppPrev = input.bool(true, '  Require Opposite Prior Trigger', group = revGroup, display = display)
+revEarlyCooldownBars = input.int(5, '  Signal Cooldown Bars', minval = 0, group = revGroup, display = display)
+revEarlyMinBodyAtr = input.float(0.15, '  Min Candle Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlyExceptionShow = input.bool(true, '  Allow Exception Counter-Trend Signals', group = revGroup, display = display)
+revEarlyExceptionBodyAtr = input.float(0.35, '  Exception Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlyExceptionCloseBreak = input.bool(false, '  Exception Require Close Break', group = revGroup, display = display)
+revEarlyExceptionMicroGate = input.bool(false, '  Exception Require Micro Alignment', group = revGroup, display = display)
+revEarlyExceptionOppPrev = input.bool(false, '  Exception Require Opposite Prior Trigger', group = revGroup, display = display)
+revEarlyExceptionCooldownBars = input.int(0, '  Exception Cooldown Bars', minval = 0, group = revGroup, display = display)
+revEarlyExceptionUseZoneContext = input.bool(true, '  Exception Use Zone Context', group = revGroup, display = display)
+revEarlyExceptionInZoneBodyAtr = input.float(0.30, '  Exception In-Zone Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlyExceptionOutZoneBodyAtr = input.float(0.77, '  Exception Out-of-Zone Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlyExceptionAllowNearZone = input.bool(true, '  Exception Allow Near-Zone', group = revGroup, display = display)
+revEarlyExceptionNearZoneAtr = input.float(0.25, '  Exception Near-Zone ATR Buffer', minval = 0, step = 0.05, group = revGroup, display = display)
+revTrackShow = input.bool(true, '  Track Early Quality', group = revGroup, display = display)
+revTrackLookaheadBars = input.int(20, '  Track Lookahead Bars', minval = 1, group = revGroup, display = display)
+revTrackAtrTarget = input.float(0.60, '  Track Target/Stop (ATR)', minval = 0.1, step = 0.05, group = revGroup, display = display)
+revTrackPos = input.string('Bottom Left', '  Track Panel Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = revGroup, display = display)
 revBullColor = input.color(color.new(#089981, 0), '  Bullish', inline = 'REV', group = revGroup)
 revBearColor = input.color(color.new(#f23645, 0), 'Bearish', inline = 'REV', group = revGroup)
 
@@ -152,6 +172,27 @@ var lnOBB = array.new_line()
 var bullish_ob = array.new<ob>(0)
 var bearish_ob = array.new<ob>(0)
 
+var revPendDir = array.new_int()
+var revPendEntry = array.new_float()
+var revPendTp = array.new_float()
+var revPendSl = array.new_float()
+var revPendBorn = array.new_int()
+var revPendExpiry = array.new_int()
+var revPendMode = array.new_int() // 0 = core, 1 = exception
+
+var int revBullTotal = 0
+var int revBearTotal = 0
+var int revBullCoreTotal = 0
+var int revBearCoreTotal = 0
+var int revBullExceptionTotal = 0
+var int revBearExceptionTotal = 0
+var int revBullWin = 0
+var int revBearWin = 0
+var int revBullFalse = 0
+var int revBearFalse = 0
+var int revBullTimeout = 0
+var int revBearTimeout = 0
+
 //---------------------------------------------------------------------------------------------------------------------}
 // Functions / Methods
 //---------------------------------------------------------------------------------------------------------------------{
@@ -179,6 +220,10 @@ dashPosition(posInText) =>
 dashRow(table t, int r, string k, string v, color vc) =>
     table.cell(t, 0, r, k, text_color = color.silver, text_size = size.tiny, bgcolor = color.new(color.black, 30), text_halign = text.align_left)
     table.cell(t, 1, r, v, text_color = vc, text_size = size.tiny, bgcolor = color.new(color.black, 60), text_halign = text.align_left)
+
+ratioPctStr(int wins, int losses) =>
+    total = wins + losses
+    total > 0 ? str.tostring((wins * 100.0) / total, '#.0') + '%' : 'N/A'
 
 timeframe(userTimeframe) =>
     float chartTFinM = timeframe.in_seconds() / 60
@@ -418,6 +463,10 @@ var int stTypePrev = 0
 var int itTypePrev = 0
 var int ltTypePrev = 0
 var int mcTypePrev = 0
+var int bullEarlyLastBar = na
+var int bearEarlyLastBar = na
+var int bullExceptionLastBar = na
+var int bearExceptionLastBar = na
 
 revTypePrev = switch revSource
     'Micro' => stTypePrev
@@ -450,12 +499,24 @@ revEarlyTriggerPrev = switch revEarlyTriggerSource
     'Long Term' => ltTypePrev
     => mcTypePrev
 
-bullEarlyStrict = revEarlyTrendType == -1 and revEarlyTriggerType == 1 and revEarlyTriggerPrev != 1
-bearEarlyStrict = revEarlyTrendType == 1 and revEarlyTriggerType == -1 and revEarlyTriggerPrev != -1
-bullEarlyBalanced = revEarlyTrendType != 1 and revEarlyTriggerType == 1 and revEarlyTriggerPrev != 1
-bearEarlyBalanced = revEarlyTrendType != -1 and revEarlyTriggerType == -1 and revEarlyTriggerPrev != -1
-bullEarlyAggressive = revEarlyTriggerType == 1 and revEarlyTriggerPrev != 1
-bearEarlyAggressive = revEarlyTriggerType == -1 and revEarlyTriggerPrev != -1
+revEarlyContinuation = revEarlyIntentT == 'Trend Continuation'
+bullTrendStrict = revEarlyContinuation ? revEarlyTrendType == 1 : revEarlyTrendType == -1
+bearTrendStrict = revEarlyContinuation ? revEarlyTrendType == -1 : revEarlyTrendType == 1
+bullTrendLoose = revEarlyContinuation ? revEarlyTrendType != -1 : revEarlyTrendType != 1
+bearTrendLoose = revEarlyContinuation ? revEarlyTrendType != 1 : revEarlyTrendType != -1
+bullTrendBalancedOk = revEarlyRequireOppTrend ? bullTrendStrict : bullTrendLoose
+bearTrendBalancedOk = revEarlyRequireOppTrend ? bearTrendStrict : bearTrendLoose
+bullTrendAggressiveOk = revEarlyRequireOppTrend ? bullTrendStrict : true
+bearTrendAggressiveOk = revEarlyRequireOppTrend ? bearTrendStrict : true
+bullTriggerFlipOk = revEarlyRequireOppPrev ? revEarlyTriggerPrev == -1 : revEarlyTriggerPrev != 1
+bearTriggerFlipOk = revEarlyRequireOppPrev ? revEarlyTriggerPrev == 1 : revEarlyTriggerPrev != -1
+
+bullEarlyStrict = bullTrendStrict and revEarlyTriggerType == 1 and bullTriggerFlipOk
+bearEarlyStrict = bearTrendStrict and revEarlyTriggerType == -1 and bearTriggerFlipOk
+bullEarlyBalanced = bullTrendBalancedOk and revEarlyTriggerType == 1 and bullTriggerFlipOk
+bearEarlyBalanced = bearTrendBalancedOk and revEarlyTriggerType == -1 and bearTriggerFlipOk
+bullEarlyAggressive = bullTrendAggressiveOk and revEarlyTriggerType == 1 and bullTriggerFlipOk
+bearEarlyAggressive = bearTrendAggressiveOk and revEarlyTriggerType == -1 and bearTriggerFlipOk
 
 bullEarlyMode = switch revEarlyModeT
     'Strict' => bullEarlyStrict
@@ -467,10 +528,166 @@ bearEarlyMode = switch revEarlyModeT
     'Balanced' => bearEarlyBalanced
     => bearEarlyAggressive
 
-bullEarlyCore = revEarlyShow and bullEarlyMode
-bearEarlyCore = revEarlyShow and bearEarlyMode
-bullEarly = bullEarlyCore and (not revEarlyMicroGate or stMS.type == 1)
-bearEarly = bearEarlyCore and (not revEarlyMicroGate or stMS.type == -1)
+revEarlyBody = math.abs(close - open)
+revEarlyAtr = ta.atr(14)
+revEarlyBodyAtrRatio = revEarlyAtr > 0 ? revEarlyBody / revEarlyAtr : 0
+revEarlyBodyOk = revEarlyBodyAtrRatio >= revEarlyMinBodyAtr
+
+bullEarlyCore = revEarlyShow and bullEarlyMode and revEarlyBodyOk
+bearEarlyCore = revEarlyShow and bearEarlyMode and revEarlyBodyOk
+bullEarlyCoreGated = bullEarlyCore and (not revEarlyMicroGate or stMS.type == 1)
+bearEarlyCoreGated = bearEarlyCore and (not revEarlyMicroGate or stMS.type == -1)
+
+// Exception layer: allow selective opposite-trend EARLY signals on strong impulse reversals.
+bullExceptionTrend = revEarlyContinuation and revEarlyTrendType == -1
+bearExceptionTrend = revEarlyContinuation and revEarlyTrendType == 1
+revInBullZone = false
+revInBearZone = false
+revBullZoneDist = 10e6
+revBearZoneDist = 10e6
+
+if bullish_ob.size() > 0
+    for i = 0 to bullish_ob.size() - 1
+        z = bullish_ob.get(i)
+        zDist = close < z.btm ? z.btm - close : close > z.top ? close - z.top : 0
+        revBullZoneDist := math.min(revBullZoneDist, zDist)
+        if close <= z.top and close >= z.btm
+            revInBullZone := true
+            break
+
+if bearish_ob.size() > 0
+    for i = 0 to bearish_ob.size() - 1
+        z = bearish_ob.get(i)
+        zDist = close < z.btm ? z.btm - close : close > z.top ? close - z.top : 0
+        revBearZoneDist := math.min(revBearZoneDist, zDist)
+        if close <= z.top and close >= z.btm
+            revInBearZone := true
+            break
+
+bullNearZone = revEarlyExceptionAllowNearZone and revEarlyAtr > 0 and revBullZoneDist <= revEarlyAtr * revEarlyExceptionNearZoneAtr
+bearNearZone = revEarlyExceptionAllowNearZone and revEarlyAtr > 0 and revBearZoneDist <= revEarlyAtr * revEarlyExceptionNearZoneAtr
+bullZoneContextOk = revInBullZone or bullNearZone
+bearZoneContextOk = revInBearZone or bearNearZone
+
+bullExceptionRequiredBodyAtr = revEarlyExceptionUseZoneContext ? (bullZoneContextOk ? revEarlyExceptionInZoneBodyAtr : revEarlyExceptionOutZoneBodyAtr) : revEarlyExceptionBodyAtr
+bearExceptionRequiredBodyAtr = revEarlyExceptionUseZoneContext ? (bearZoneContextOk ? revEarlyExceptionInZoneBodyAtr : revEarlyExceptionOutZoneBodyAtr) : revEarlyExceptionBodyAtr
+bullExceptionBodyOk = revEarlyBodyAtrRatio >= bullExceptionRequiredBodyAtr
+bearExceptionBodyOk = revEarlyBodyAtrRatio >= bearExceptionRequiredBodyAtr
+bullExceptionCloseBreakOk = not revEarlyExceptionCloseBreak or close > high[1]
+bearExceptionCloseBreakOk = not revEarlyExceptionCloseBreak or close < low[1]
+bullExceptionFlipOk = revEarlyExceptionOppPrev ? bullTriggerFlipOk : revEarlyTriggerPrev != 1
+bearExceptionFlipOk = revEarlyExceptionOppPrev ? bearTriggerFlipOk : revEarlyTriggerPrev != -1
+bullExceptionMicroOk = not revEarlyExceptionMicroGate or stMS.type == 1
+bearExceptionMicroOk = not revEarlyExceptionMicroGate or stMS.type == -1
+bullExceptionZoneOk = not revEarlyExceptionUseZoneContext or bullZoneContextOk
+bearExceptionZoneOk = not revEarlyExceptionUseZoneContext or bearZoneContextOk
+bullException = revEarlyShow and revEarlyExceptionShow and bullExceptionTrend and bullExceptionZoneOk and revEarlyTriggerType == 1 and bullExceptionFlipOk and bullExceptionBodyOk and bullExceptionCloseBreakOk and bullExceptionMicroOk
+bearException = revEarlyShow and revEarlyExceptionShow and bearExceptionTrend and bearExceptionZoneOk and revEarlyTriggerType == -1 and bearExceptionFlipOk and bearExceptionBodyOk and bearExceptionCloseBreakOk and bearExceptionMicroOk
+
+bullEarlyCoreCooldownOk = revEarlyCooldownBars <= 0 or na(bullEarlyLastBar) or bar.index - bullEarlyLastBar > revEarlyCooldownBars
+bearEarlyCoreCooldownOk = revEarlyCooldownBars <= 0 or na(bearEarlyLastBar) or bar.index - bearEarlyLastBar > revEarlyCooldownBars
+bullExceptionCooldownOk = revEarlyExceptionCooldownBars <= 0 or na(bullExceptionLastBar) or bar.index - bullExceptionLastBar > revEarlyExceptionCooldownBars
+bearExceptionCooldownOk = revEarlyExceptionCooldownBars <= 0 or na(bearExceptionLastBar) or bar.index - bearExceptionLastBar > revEarlyExceptionCooldownBars
+bullEarlyCoreFinal = bullEarlyCoreGated and bullEarlyCoreCooldownOk
+bearEarlyCoreFinal = bearEarlyCoreGated and bearEarlyCoreCooldownOk
+bullExceptionFinal = bullException and bullExceptionCooldownOk
+bearExceptionFinal = bearException and bearExceptionCooldownOk
+bullEarly = bullEarlyCoreFinal or bullExceptionFinal
+bearEarly = bearEarlyCoreFinal or bearExceptionFinal
+
+if bullEarlyCoreFinal
+    bullEarlyLastBar := bar.index
+if bearEarlyCoreFinal
+    bearEarlyLastBar := bar.index
+if bullExceptionFinal
+    bullExceptionLastBar := bar.index
+if bearExceptionFinal
+    bearExceptionLastBar := bar.index
+
+if revTrackShow
+    i = 0
+    while i < array.size(revPendDir)
+        dir = array.get(revPendDir, i)
+        tp = array.get(revPendTp, i)
+        sl = array.get(revPendSl, i)
+        born = array.get(revPendBorn, i)
+        expiry = array.get(revPendExpiry, i)
+        mode = array.get(revPendMode, i)
+
+        // Start evaluating only from the bar after signal creation.
+        if bar.index <= born
+            i += 1
+        else
+            hitTp = dir == 1 ? high >= tp : low <= tp
+            hitSl = dir == 1 ? low <= sl : high >= sl
+            timedOut = bar.index >= expiry
+            resolved = false
+
+            if hitTp and not hitSl
+                if dir == 1
+                    revBullWin += 1
+                else
+                    revBearWin += 1
+                resolved := true
+            else if hitSl or (hitTp and hitSl)
+                if dir == 1
+                    revBullFalse += 1
+                else
+                    revBearFalse += 1
+                resolved := true
+            else if timedOut
+                if dir == 1
+                    revBullTimeout += 1
+                else
+                    revBearTimeout += 1
+                resolved := true
+
+            if resolved
+                array.remove(revPendDir, i)
+                array.remove(revPendEntry, i)
+                array.remove(revPendTp, i)
+                array.remove(revPendSl, i)
+                array.remove(revPendBorn, i)
+                array.remove(revPendExpiry, i)
+                array.remove(revPendMode, i)
+            else
+                i += 1
+
+    if bullEarly and revEarlyAtr > 0
+        mode = bullExceptionFinal ? 1 : 0
+        entry = close
+        target = entry + revEarlyAtr * revTrackAtrTarget
+        stop = entry - revEarlyAtr * revTrackAtrTarget
+        array.push(revPendDir, 1)
+        array.push(revPendEntry, entry)
+        array.push(revPendTp, target)
+        array.push(revPendSl, stop)
+        array.push(revPendBorn, bar.index)
+        array.push(revPendExpiry, bar.index + revTrackLookaheadBars)
+        array.push(revPendMode, mode)
+        revBullTotal += 1
+        if mode == 0
+            revBullCoreTotal += 1
+        else
+            revBullExceptionTotal += 1
+
+    if bearEarly and revEarlyAtr > 0
+        mode = bearExceptionFinal ? 1 : 0
+        entry = close
+        target = entry - revEarlyAtr * revTrackAtrTarget
+        stop = entry + revEarlyAtr * revTrackAtrTarget
+        array.push(revPendDir, -1)
+        array.push(revPendEntry, entry)
+        array.push(revPendTp, target)
+        array.push(revPendSl, stop)
+        array.push(revPendBorn, bar.index)
+        array.push(revPendExpiry, bar.index + revTrackLookaheadBars)
+        array.push(revPendMode, mode)
+        revBearTotal += 1
+        if mode == 0
+            revBearCoreTotal += 1
+        else
+            revBearExceptionTotal += 1
 
 revTiny = revMarkerSizeT == 'Tiny'
 revSmall = revMarkerSizeT == 'Small'
@@ -930,5 +1147,28 @@ if dashShow
     dashRow(dash, 2, 'MICRO MSS', microStr, microCol)
     dashRow(dash, 3, 'ZONE', zoneStr, zoneCol)
     dashRow(dash, 4, 'TARGET', targetStr, targetCol)
+
+if revTrackShow
+    bullPrecStr = ratioPctStr(revBullWin, revBullFalse)
+    bearPrecStr = ratioPctStr(revBearWin, revBearFalse)
+    allPrecStr = ratioPctStr(revBullWin + revBearWin, revBullFalse + revBearFalse)
+    totalCore = revBullCoreTotal + revBearCoreTotal
+    totalException = revBullExceptionTotal + revBearExceptionTotal
+    totalTracked = revBullTotal + revBearTotal
+    totalTimeout = revBullTimeout + revBearTimeout
+    pendingTracked = array.size(revPendDir)
+
+    var table trackDash = table.new(dashPosition(revTrackPos), 2, 9, border_width = 1, frame_width = 1, frame_color = color.gray)
+    table.clear(trackDash, 0, 0, 1, 8)
+    table.cell(trackDash, 0, 0, 'EARLY Track', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
+    table.cell(trackDash, 1, 0, str.tostring(totalTracked), text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
+    dashRow(trackDash, 1, 'Precision', allPrecStr, color.new(color.white, 0))
+    dashRow(trackDash, 2, 'Bull Prec', bullPrecStr, color.new(#089981, 0))
+    dashRow(trackDash, 3, 'Bear Prec', bearPrecStr, color.new(#f23645, 0))
+    dashRow(trackDash, 4, 'Core/Exc', str.tostring(totalCore) + ' / ' + str.tostring(totalException), color.silver)
+    dashRow(trackDash, 5, 'Wins', str.tostring(revBullWin + revBearWin), color.new(color.lime, 0))
+    dashRow(trackDash, 6, 'False', str.tostring(revBullFalse + revBearFalse), color.new(color.red, 0))
+    dashRow(trackDash, 7, 'Timeout', str.tostring(totalTimeout), color.orange)
+    dashRow(trackDash, 8, 'Pending', str.tostring(pendingTracked), color.new(color.aqua, 0))
 
 //---------------------------------------------------------------------------------------------------------------------}

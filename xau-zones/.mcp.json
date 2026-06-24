@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "tradingview": {
+      "command": "node",
+      "args": [
+        "/Users/apple/Documents/xau-auto/tradingview-mcp/src/server.js"
+      ]
+    }
+  }
+}
