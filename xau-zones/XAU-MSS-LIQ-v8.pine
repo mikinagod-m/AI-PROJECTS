@@ -1,0 +1,1591 @@
+//@version=6
+// ════════════════════════════════════════════════════════════════════════════
+// XAU-MSS-LIQ-v8-BT — BACKTEST TWIN (strategy) of XAU-MSS-LIQ-v8
+// ────────────────────────────────────────────────────────────────────────────
+// This is the SAME engine as the XAU-MSS-LIQ-v8 indicator, converted to a
+// strategy() so its edge can be measured in TradingView's tester. The signal
+// logic (tradeLong / tradeShort) and plan SL/TP are byte-identical to the
+// indicator — only the header and a BACKTEST EXECUTION block at the bottom are
+// added. Keep edits to the shared logic in BOTH files in sync.
+//
+// R-FAITHFUL METRICS: each entry is sized so a stop-out loses ~i_btRiskUsd, so
+// the tester's currency P&L tracks R 1:1 — Profit Factor (currency) == PF (R).
+// Costs here are GROSS; the live /stats + xau-agent already model ~0.12-0.15R
+// per-trade execution cost, so subtract that when judging net edge.
+// ────────────────────────────────────────────────────────────────────────────
+// XAU-MSS-LIQ-v8 — Clean Market-Structure & Liquidity Read (3m XAUUSD) + Asia Sweep
+//                  + CVD / Delta Confluence (order-flow proxy)
+// ────────────────────────────────────────────────────────────────────────────
+// A focused, no-scoring read of the chart. Four jobs only:
+//   1. TRUE MSS  — a swing level is SWEPT (wick beyond it), then price CLOSES
+//                  back through it. Sweep is marked, the close confirms the MSS.
+//                  This is distinct from a plain BOS (close beyond, no sweep).
+//   2. MACRO STRUCTURE — slow confirmed-pivot HH/HL/LH/LL with a structure line.
+//   3. BSL / SSL LINES — only the nearest UNSWEPT buy-side above and sell-side
+//                  below stay highlighted. Swept levels fade and expire.
+//   4. SIMPLIFIED DASHBOARD — Bias (HTF vote) + Structure + Flow + nearest
+//                  liquidity targets + last MSS direction.
+//
+// No entries, no risk model, no grades. This is a context tool: it tells you
+// WHERE liquidity sits and WHEN structure has actually shifted, so the decision
+// stays with you.
+// ════════════════════════════════════════════════════════════════════════════
+strategy("XAU-MSS-LIQ-v8", shorttitle="XAU-MSS-LIQ-v8", overlay=true,
+     max_labels_count=200, max_lines_count=300, max_boxes_count=50,
+     initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1,
+     pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false,
+     commission_type=strategy.commission.percent, commission_value=0.0,
+     close_entries_rule="ANY")
+
+// ─── INPUTS ──────────────────────────────────────────────────────────────────
+grpStruct = "Structure"
+i_pivotLen   = input.int(5,  "Pivot Length",        minval=2, maxval=20, group=grpStruct,
+     tooltip="Bars either side of a swing high/low. 5 on 3m XAU keeps macro pivots meaningful without lagging too far.")
+i_showMacro  = input.bool(true, "Show HH/HL/LH/LL labels", group=grpStruct)
+i_showStructLine = input.bool(true, "Show Structure Line", group=grpStruct)
+
+grpMss = "MSS (Sweep + Reclaim)"
+i_sweepFreshBars = input.int(8, "Sweep Fresh Bars", minval=1, maxval=30, group=grpMss,
+     tooltip="How many bars a sweep stays 'fresh' and eligible to confirm an MSS reclaim. ~8 on 3m = 24 minutes.")
+i_mssMemBars = input.int(12, "MSS / Flow Memory Bars", minval=2, maxval=60, group=grpMss,
+     tooltip="How long the most recent MSS keeps FLOW pointed that way before it decays to RANGE.")
+i_showSweepTags = input.bool(true, "Show Sweep / MSS tags", group=grpMss)
+i_sweepPickMode = input.string("Legacy (last swept)", "Sweep Reference Selection", options=["Legacy (last swept)","Nearest To Close","Deepest Penetration"], group=grpMss,
+     tooltip="When multiple liquidity levels are swept in one bar, controls which level anchors the reclaim MSS.")
+i_reclaimProxGate = input.bool(false, "Use Reclaim Proximity Gate", group=grpMss,
+     tooltip="If ON, reclaim bar must still interact with the swept level zone (ATR-based), reducing late/far reclaim confirmations.")
+i_reclaimMaxDistAtr = input.float(0.30, "Reclaim Proximity (ATR mult)", minval=0.05, maxval=2.0, step=0.05, group=grpMss,
+     tooltip="Distance around swept level used by proximity gate. Reclaim candle must still touch this zone.")
+
+grpLiq = "Liquidity (BSL / SSL)"
+i_maxLines      = input.int(8,  "Max Liquidity Lines", minval=2, maxval=30, group=grpLiq,
+     tooltip="Cap on stored BSL/SSL pivot lines per side. Oldest are removed first.")
+i_showLiq       = input.bool(true, "Show Liquidity Lines", group=grpLiq)
+i_showLinePrice = input.bool(true, "Show Line Prices", group=grpLiq)
+i_levelExt      = input.int(20, "Level Extend Bars", minval=5, maxval=80, group=grpLiq)
+i_liqExpireBars = input.int(20, "Swept Liquidity Expiry Bars", minval=5, maxval=80, group=grpLiq,
+     tooltip="A swept level stays drawn (faded) this many bars, then is removed.")
+i_linePriceSize = input.string("Tiny", "Line Price Size", options=["Tiny","Small","Normal"], group=grpLiq)
+
+grpBias = "Bias (HTF Vote)"
+i_emaFast = input.int(20, "Fast EMA", minval=2, group=grpBias)
+i_emaSlow = input.int(50, "Slow EMA", minval=5, group=grpBias)
+i_tacTf   = input.timeframe("9",  "Tactical TF",  group=grpBias, tooltip="9m tactical read.")
+i_sessTf  = input.timeframe("15", "Session TF",   group=grpBias, tooltip="15m session trend.")
+i_strTf   = input.timeframe("60", "Strategic TF", group=grpBias, tooltip="1H strategic context.")
+i_showEma = input.bool(false, "Show EMAs", group=grpBias)
+
+grpConf = "Confluence Filters"
+i_useStFilter   = input.bool(true, "Use Supertrend Regime Filter", group=grpConf,
+     tooltip="Only allow bullish MSS in bullish Supertrend regime, and bearish MSS in bearish regime.")
+i_useAroon      = input.bool(true, "Use Aroon Momentum Filter", group=grpConf,
+     tooltip="Require Aroon oscillator to confirm directional momentum for MSS.")
+i_requireStFlip = input.bool(false, "Require Supertrend Flip on Signal Bar", group=grpConf,
+     tooltip="Strict mode: MSS is valid only if Supertrend flips on the same bar.")
+i_stAtrLen      = input.int(10, "Supertrend ATR Length", minval=1, group=grpConf)
+i_stMult        = input.float(3.0, "Supertrend Factor", step=0.1, minval=0.1, group=grpConf)
+i_aroonLen      = input.int(14, "Aroon Length", minval=2, group=grpConf)
+i_aroonThres    = input.int(0, "Aroon Threshold", minval=0, maxval=100, group=grpConf,
+     tooltip="Bullish needs Aroon Osc > threshold, bearish needs < -threshold.")
+
+grpPoi = "POI (Entry Zone)"
+i_showPoi         = input.bool(true, "Show POI Zone", group=grpPoi)
+i_poiAtrPad       = input.float(0.05, "POI ATR Padding", minval=0.0, step=0.01, group=grpPoi,
+     tooltip="Extra ATR padding around the sweep-to-reclaim POI zone.")
+i_poiKeepBars     = input.int(30, "POI Keep Bars", minval=5, maxval=200, group=grpPoi,
+     tooltip="How long a new POI stays active on chart.")
+i_poiExtendBars   = input.int(30, "POI Extend Bars", minval=5, maxval=200, group=grpPoi)
+i_showPoiTouches  = input.bool(true, "Show POI Touch Markers", group=grpPoi)
+
+grpSess = "Sessions / Asia Sweep"
+i_tz         = input.string("Europe/London", "Timezone", options=["Europe/London","America/New_York","UTC"], group=grpSess)
+i_asiaSess   = input.session("0000-0600", "Asia Session", group=grpSess)
+i_londonSess = input.session("0700-1000", "London Session", group=grpSess)
+i_nyAmSess   = input.session("1330-1600", "NY AM Session", group=grpSess)
+i_nyPmSess   = input.session("1830-2100", "NY PM Session", group=grpSess)
+i_showAsia   = input.bool(true, "Show Asia High/Low", group=grpSess)
+// ── Asia-sweep → reclaim (fade) signal ───────────────────────────────────────
+i_asiaSignal     = input.bool(true, "Enable Asia Sweep→Reclaim Signal", group=grpSess,
+     tooltip="Treat a wick beyond the Asia H/L that CLOSES back inside the range as a high-grade MSS in the fade direction. Reuses the existing sweep/reclaim engine.")
+i_asiaKillOnly   = input.bool(true, "Asia Signal Only In London/NY Kill Window", group=grpSess,
+     tooltip="When ON, the Asia-sweep signal can only fire during London or NY-AM sessions (the high-probability Judas-swing windows).")
+i_asiaFreshBars  = input.int(10, "Asia Sweep Fresh Bars", minval=1, maxval=40, group=grpSess,
+     tooltip="How many bars after an Asia H/L sweep the reclaim is still eligible. Slightly longer than pivot sweeps since session liquidity reclaims can lag.")
+i_asiaLockFirstSweep = input.bool(false, "Lock First Asia Sweep Per Day", group=grpSess,
+     tooltip="If ON, only the first Asia-high and first Asia-low sweep of each day are kept as MSS references; later sweeps do not overwrite.")
+i_asiaQualBoost  = input.int(2, "Asia Sweep Quality Boost", minval=0, maxval=4, group=grpSess,
+     tooltip="Extra quality points added when the MSS originates from an Asia H/L sweep rather than a plain 3m pivot.")
+i_asiaTightMod   = input.bool(true, "Asia Range Tightness Modifier", group=grpSess,
+     tooltip="Tight Asia range (accumulation present) adds +1 quality; wide range does NOT block. Modifier, not a gate.")
+i_asiaTightAtr   = input.float(6.0, "Tight Asia Range (ATR mult)", minval=1.0, step=0.5, group=grpSess,
+     tooltip="Asia range counts as 'tight' when (AsiaH-AsiaL) <= this many ATRs. ~6 ATR on 3m XAU separates accumulation from a trending Asia.")
+i_asiaPdGate     = input.bool(true, "Require Premium/Discount Alignment", group=grpSess,
+     tooltip="Asia-high sweep (short) must occur in PREMIUM half of the Asia range; Asia-low sweep (long) in DISCOUNT half. Keeps fades at the extremes.")
+i_asiaDealingRng = input.bool(true, "Use Asia Range as HTF Dealing Range", group=grpSess,
+     tooltip="On kill-window days, derive DISCOUNT/PREMIUM/EQUILIBRIUM from the Asia box instead of the slow macro swing range.")
+
+grpAuto = "Auto Session Profiles"
+i_useAutoProfiles = input.bool(true, "Auto-Activate Profile By Session", group=grpAuto,
+     tooltip="Automatically switches parameter presets when London / NY AM / Asia sessions open.")
+i_profileLondon = input.string("Balanced", "London Profile", options=["Aggressive","Balanced","Conservative"], group=grpAuto)
+i_profileNyAm   = input.string("Aggressive", "NY AM Profile", options=["Aggressive","Balanced","Conservative"], group=grpAuto)
+i_profileAsia   = input.string("Conservative", "Asia Profile", options=["Aggressive","Balanced","Conservative"], group=grpAuto)
+i_profileOff    = input.string("Balanced", "NY PM / Off-Session Profile", options=["Aggressive","Balanced","Conservative"], group=grpAuto)
+
+grpFlow = "Flow / Opportunity"
+i_flowCooldownBars = input.int(6, "Directional Cooldown Bars", minval=0, maxval=80, group=grpFlow)
+i_allowReEntry = input.bool(true, "Allow Same-Side Re-Entry", group=grpFlow)
+
+grpRegime = "Regime + Quality"
+i_adxLen         = input.int(14, "ADX Length", minval=3, group=grpRegime)
+i_adxChop        = input.float(18.0, "Chop ADX", step=0.5, group=grpRegime)
+i_adxTrend       = input.float(25.0, "Trend ADX", step=0.5, group=grpRegime)
+i_atrExpansion   = input.float(1.08, "ATR Expansion Ratio", minval=0.80, step=0.01, group=grpRegime)
+i_useVwapFilter  = input.bool(true, "Use VWAP Alignment", group=grpRegime)
+i_vwapMode       = input.string("Score Only", "VWAP Treatment", options=["Score Only","Hard Gate"], group=grpRegime)
+i_qualityBaseMin = input.int(4, "Base Min Quality", minval=1, maxval=10, group=grpRegime)
+i_trendMin       = input.int(4, "Trend Min Quality", minval=1, maxval=10, group=grpRegime)
+i_expansionMin   = input.int(5, "Expansion Min Quality", minval=1, maxval=10, group=grpRegime)
+i_neutralMin     = input.int(5, "Neutral Min Quality", minval=1, maxval=10, group=grpRegime)
+i_chopMin        = input.int(6, "Chop Min Quality", minval=1, maxval=10, group=grpRegime)
+
+grpCvd = "CVD / Delta Confluence (proxy)"
+i_useCvd       = input.bool(true, "Use CVD Delta Confluence", group=grpCvd,
+     tooltip="Lower-timeframe cumulative volume delta as an order-flow PROXY. Infers aggressor side from each sub-bar's close direction — NOT true bid/ask. On spot XAU volume is broker tick-volume, so treat as relative, not absolute.")
+i_cvdLtf       = input.timeframe("1", "CVD Lower Timeframe", group=grpCvd,
+     tooltip="Sub-bar resolution used to estimate delta inside each 3m bar. 1m is the practical floor on most feeds. Must be lower than the chart timeframe.")
+i_cvdWindow    = input.int(3, "CVD Window Bars", minval=1, maxval=20, group=grpCvd,
+     tooltip="Bars of delta summed to judge reclaim conviction. ~3 on 3m = the reclaim plus its immediate follow-through.")
+i_cvdMode      = input.string("Score Only", "CVD Treatment", options=["Score Only","Hard Gate"], group=grpCvd,
+     tooltip="Score Only = adds a quality point when delta aligns. Hard Gate = blocks the MSS entirely if delta opposes the trade direction.")
+i_cvdMinDelta  = input.float(0.0, "Min Aligned Delta (0 = any sign)", minval=0.0, step=0.1, group=grpCvd,
+     tooltip="Require summed delta magnitude beyond this (in volume units) to count as aligned. 0 = any correct-sign delta qualifies.")
+i_showCvd      = input.bool(false, "Plot CVD Window Delta (debug)", group=grpCvd)
+
+grpQuality = "Quality Scoring"
+i_qualityUseFreshSweep = input.bool(false, "Score Sweep By Freshness (not just same bar)", group=grpQuality,
+     tooltip="If ON, liquidity-score point uses sweep freshness windows instead of only same-bar sweep flags.")
+
+grpRisk = "Risk Plan Overlay"
+i_showRiskPlan   = input.bool(true, "Show Risk Plan (SL/TP)", group=grpRisk)
+i_slAtr          = input.float(0.08, "SL Buffer ATR", minval=0.01, step=0.01, group=grpRisk)
+i_rrFallback     = input.float(1.5, "Fallback RR", minval=0.5, step=0.1, group=grpRisk)
+i_minRr          = input.float(1.2, "Minimum RR", minval=0.5, step=0.1, group=grpRisk)
+i_maxSlAtr       = input.float(1.2, "Max SL ATR", minval=0.2, step=0.1, group=grpRisk)
+i_minRisk        = input.float(0.7, "Min Risk Points", minval=0.1, step=0.1, group=grpRisk)
+i_showRiskBlocked = input.bool(true, "Show Risk-Blocked Tags", group=grpRisk)
+
+grpDtz = "Directional Turning Zone (T Boxes)"
+i_showDtz      = input.bool(true, "Show T Boxes", group=grpDtz)
+i_dtzExtend    = input.int(40, "T Box Extend Bars", minval=5, maxval=200, group=grpDtz)
+i_dtzMaxBoxes  = input.int(6, "Max T Boxes", minval=2, maxval=12, group=grpDtz)
+i_dtzOpacity   = input.int(84, "T Box Opacity %", minval=50, maxval=95, group=grpDtz)
+i_dtzMode      = input.string("Integrated", "DTZ Mode", options=["Integrated","U15 Parity"], group=grpDtz,
+     tooltip="Integrated = uses this script's filtered signal/flow stack. U15 Parity = uses raw sweep/MSS-style tier classification closer to XAU-U15-SCALP.")
+i_dtzPatternOnly = input.bool(true, "Show Tier 3 Pattern-Only Zones", group=grpDtz)
+i_dtzRequireMacro = input.bool(true, "Require Macro Structure Alignment", group=grpDtz,
+     tooltip="When ON, bullish DTZ requires bullish macro structure (or bullish bias-led range), and bearish DTZ requires bearish macro structure (or bearish bias-led range).")
+i_dtzSideLock = input.bool(true, "Hide Counter-Bias T Boxes (Trade-Side Lock)", group=grpDtz,
+     tooltip="When ON, only T boxes on the tradeable side draw: bull boxes when TRADE SIDE is LONG ONLY, bear boxes when SHORT ONLY. In WAIT/BOTH LIGHT, both sides draw. Removes the visual contradiction of a counter-bias box appearing while the dashboard says one side only.")
+
+grpPathB = "Path B — Momentum Break (Range-Break)"
+i_pbEnable      = input.bool(false, "Enable Path B Momentum Break", group=grpPathB,
+     tooltip="Second, independent entry engine. Catches range-break + displacement continuation moves that the sweep-reclaim engine (Path A) structurally misses. Default OFF — paper-trade its alerts before sizing live.")
+i_pbRangeBars   = input.int(20, "Range Lookback Bars", minval=6, maxval=60, group=grpPathB,
+     tooltip="Bars used to define the coiling range (its high/low). ~20 on 3m = 1 hour of structure.")
+i_pbTightAtr    = input.float(4.0, "Max Range Height (ATR mult)", minval=1.0, step=0.5, group=grpPathB,
+     tooltip="The lookback window only counts as a 'coil' worth breaking if its height <= this many ATRs. Wider = not a compression, no break traded.")
+i_pbDispMult    = input.float(0.80, "Break Displacement (ATR mult)", minval=0.3, step=0.05, group=grpPathB,
+     tooltip="The breaking bar's body must be >= this many ATRs. Higher = only decisive breaks qualify, fewer fakeouts, fewer signals.")
+i_pbRequireFlow = input.bool(true, "Require Flow/Delta Agreement", group=grpPathB,
+     tooltip="Break must have FLOW (and CVD delta if enabled) pointing the same direction as the break.")
+i_pbSlAtrBuf    = input.float(0.10, "Break SL ATR Buffer", minval=0.01, step=0.01, group=grpPathB,
+     tooltip="ATR padding beyond the opposite range edge for the stop. Stop = far side of broken range +/- this buffer.")
+i_pbShowBox     = input.bool(true, "Show Path B Break Box", group=grpPathB)
+
+grpOppMarks = "Opportunity Markers"
+i_showOppMarks = input.bool(true, "Show PREP/WATCH/READY", group=grpOppMarks)
+i_oppMarkLevel = input.string("WATCH+", "Marker Level", options=["PREP+","WATCH+","READY only"], group=grpOppMarks)
+
+grpCandle = "Candle Confirmation"
+i_useCandleConfirm = input.bool(true, "Use Candle Confirmation", group=grpCandle,
+     tooltip="Use turning candles as timing confirmation at POI/DTZ/liquidity edge.")
+i_candleMode = input.string("Required for READY", "Candle Mode", options=["Off","Watch Only","Required for READY"], group=grpCandle,
+     tooltip="Off = ignore candles. Watch Only = require candles for WATCH markers. Required for READY = require candles for WATCH and READY markers.")
+
+grpDash = "Dashboard"
+i_showDash = input.bool(true, "Show Dashboard", group=grpDash)
+i_dashStyle = input.string("Simple Trader", "Dashboard Style", options=["Simple Trader","Full"], group=grpDash)
+i_dashPos  = input.string("Top Right", "Position",
+     options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=grpDash)
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+f_dp(p) =>
+    switch p
+        "Top Right"   => position.top_right
+        "Top Left"    => position.top_left
+        "Bottom Left" => position.bottom_left
+        =>               position.bottom_right
+
+f_lblSize(s) =>
+    switch s
+        "Small"  => size.small
+        "Normal" => size.normal
+        =>          size.tiny
+
+f_sess(sess) =>
+    not na(time(timeframe.period, sess, i_tz))
+
+// ─── CORE ────────────────────────────────────────────────────────────────────
+profInAsia = f_sess(i_asiaSess)
+profInLondon = f_sess(i_londonSess)
+profInNyAm = f_sess(i_nyAmSess)
+profInNyPm = f_sess(i_nyPmSess)
+activeProfile = not i_useAutoProfiles ? "MANUAL" : profInLondon ? i_profileLondon : profInNyAm ? i_profileNyAm : profInAsia ? i_profileAsia : i_profileOff
+isAggressive = activeProfile == "Aggressive"
+isConservative = activeProfile == "Conservative"
+isBalanced = activeProfile == "Balanced" or activeProfile == "MANUAL"
+
+effPivotLen = not i_useAutoProfiles ? i_pivotLen : isAggressive ? 4 : isConservative ? 6 : 5
+effSweepFreshBars = not i_useAutoProfiles ? i_sweepFreshBars : isAggressive ? 10 : isConservative ? 6 : 8
+effMssMemBars = not i_useAutoProfiles ? i_mssMemBars : isAggressive ? 14 : isConservative ? 10 : 12
+effAroonThres = not i_useAutoProfiles ? i_aroonThres : isAggressive ? 0 : isConservative ? 12 : 5
+effRequireStFlip = not i_useAutoProfiles ? i_requireStFlip : isConservative
+effVwapMode = not i_useAutoProfiles ? i_vwapMode : isConservative ? "Hard Gate" : "Score Only"
+effFlowCooldownBars = not i_useAutoProfiles ? i_flowCooldownBars : isAggressive ? 3 : isConservative ? 10 : 6
+effAllowReEntry = not i_useAutoProfiles ? i_allowReEntry : not isConservative
+effTrendMin = not i_useAutoProfiles ? i_trendMin : isAggressive ? 3 : isConservative ? 5 : 4
+effExpansionMin = not i_useAutoProfiles ? i_expansionMin : isAggressive ? 4 : isConservative ? 6 : 5
+effNeutralMin = not i_useAutoProfiles ? i_neutralMin : isAggressive ? 4 : isConservative ? 6 : 5
+effChopMin = not i_useAutoProfiles ? i_chopMin : isAggressive ? 5 : isConservative ? 7 : 6
+effSlAtr = not i_useAutoProfiles ? i_slAtr : isAggressive ? 0.06 : isConservative ? 0.10 : 0.08
+effRrFallback = not i_useAutoProfiles ? i_rrFallback : isAggressive ? 1.4 : isConservative ? 1.7 : 1.5
+effMinRr = not i_useAutoProfiles ? i_minRr : isAggressive ? 1.1 : isConservative ? 1.4 : 1.2
+effMaxSlAtr = not i_useAutoProfiles ? i_maxSlAtr : isAggressive ? 1.4 : isConservative ? 1.0 : 1.2
+effMinRisk = not i_useAutoProfiles ? i_minRisk : isAggressive ? 0.5 : isConservative ? 0.9 : 0.7
+effDtzExtend = not i_useAutoProfiles ? i_dtzExtend : isAggressive ? 30 : isConservative ? 50 : 40
+effDtzMaxBoxes = not i_useAutoProfiles ? i_dtzMaxBoxes : isAggressive ? 8 : isConservative ? 4 : 6
+dtzParityMode = i_dtzMode == "U15 Parity"
+dtzExtendUse = dtzParityMode ? i_dtzExtend : effDtzExtend
+dtzMaxBoxesUse = dtzParityMode ? i_dtzMaxBoxes : effDtzMaxBoxes
+
+atr     = ta.atr(14)
+safeAtr = math.max(nz(atr, 1.0), syminfo.mintick)
+emaFast = ta.ema(close, i_emaFast)
+emaSlow = ta.ema(close, i_emaSlow)
+vwapVal = ta.vwap(hlc3)
+vwapAbove = close > vwapVal
+vwapBelow = close < vwapVal
+vwapLongOk = not i_useVwapFilter or vwapAbove
+vwapShortOk = not i_useVwapFilter or vwapBelow
+[diPlus, diMinus, adxVal] = ta.dmi(i_adxLen, i_adxLen)
+atrAvg = ta.sma(safeAtr, 20)
+atrExpanding = safeAtr >= atrAvg * i_atrExpansion
+strongTrend = adxVal >= i_adxTrend
+regimeStr = adxVal < i_adxChop ? "CHOP" : strongTrend ? "TREND" : atrExpanding ? "EXPANSION" : "NEUTRAL"
+regimeCol = regimeStr == "TREND" ? color.lime : regimeStr == "EXPANSION" ? color.aqua : regimeStr == "CHOP" ? color.orange : color.gray
+effMinQuality = regimeStr == "TREND" ? effTrendMin : regimeStr == "EXPANSION" ? effExpansionMin : regimeStr == "CHOP" ? effChopMin : effNeutralMin
+linePriceSize = f_lblSize(i_linePriceSize)
+[stLine, stDirRaw] = ta.supertrend(i_stMult, i_stAtrLen)
+stBull = stDirRaw < 0
+stFlipBull = ta.change(stDirRaw) < 0
+stFlipBear = ta.change(stDirRaw) > 0
+body = math.abs(close - open)
+rng = high - low
+upperWk = high - math.max(open, close)
+lowerWk = math.min(open, close) - low
+bullDisp = close > open and body >= safeAtr * 0.65
+bearDisp = close < open and body >= safeAtr * 0.65
+bullReject = lowerWk > body * 0.8 and close >= open
+bearReject = upperWk > body * 0.8 and close <= open
+bullEngulf = close > open and close[1] < open[1] and close >= open[1] and open <= close[1]
+bearEngulf = close < open and close[1] > open[1] and close <= open[1] and open >= close[1]
+bullTurnPattern = bullReject or bullEngulf or bullDisp
+bearTurnPattern = bearReject or bearEngulf or bearDisp
+aroonUp = 100 * (ta.highestbars(high, i_aroonLen + 1) + i_aroonLen) / i_aroonLen
+aroonDn = 100 * (ta.lowestbars(low, i_aroonLen + 1) + i_aroonLen) / i_aroonLen
+aroonOsc = aroonUp - aroonDn
+
+plot(i_showEma ? emaFast : na, "EMA Fast", color=color.new(color.teal,   0))
+plot(i_showEma ? emaSlow : na, "EMA Slow", color=color.new(color.orange, 0))
+
+// ─── HTF BIAS (2-of-3 vote) ──────────────────────────────────────────────────
+[tacC, tacF, tacS] = request.security(syminfo.tickerid, i_tacTf,
+     [close[1], ta.ema(close,i_emaFast)[1], ta.ema(close,i_emaSlow)[1]], lookahead=barmerge.lookahead_off)
+[sesC, sesF, sesS] = request.security(syminfo.tickerid, i_sessTf,
+     [close[1], ta.ema(close,i_emaFast)[1], ta.ema(close,i_emaSlow)[1]], lookahead=barmerge.lookahead_off)
+[strC, strF, strS] = request.security(syminfo.tickerid, i_strTf,
+     [close[1], ta.ema(close,i_emaFast)[1], ta.ema(close,i_emaSlow)[1]], lookahead=barmerge.lookahead_off)
+
+tacBull = tacC > tacF and tacF > tacS
+sesBull = sesC > sesF and sesF > sesS
+strBull = strC > strF and strF > strS
+tacBear = tacC < tacF and tacF < tacS
+sesBear = sesC < sesF and sesF < sesS
+strBear = strC < strF and strF < strS
+
+bullCount = (tacBull ? 1 : 0) + (sesBull ? 1 : 0) + (strBull ? 1 : 0)
+bearCount = (tacBear ? 1 : 0) + (sesBear ? 1 : 0) + (strBear ? 1 : 0)
+biasLong  = bullCount >= 2
+biasShort = bearCount >= 2
+biasStr   = biasLong ? "LONG" : biasShort ? "SHORT" : "MIXED"
+biasCol   = biasLong ? color.lime : biasShort ? color.red : color.orange
+biasBadge = i_tacTf + ":" + (tacBull ? "B" : tacBear ? "S" : "N") + " " + i_sessTf + ":" + (sesBull ? "B" : sesBear ? "S" : "N") + " " + i_strTf + ":" + (strBull ? "B" : strBear ? "S" : "N")
+
+// ─── SESSIONS / ASIA RANGE ───────────────────────────────────────────────────
+inAsia   = profInAsia
+inLondon = profInLondon
+inNyAm   = profInNyAm
+inNyPm   = profInNyPm
+bestSess = inLondon or inNyAm
+sessStr = inLondon ? "LONDON" : inNyAm ? "NY AM" : inNyPm ? "NY PM" : inAsia ? "ASIA" : "OFF"
+sessCol = bestSess ? color.lime : inNyPm ? color.aqua : inAsia ? color.yellow : color.gray
+
+newDay = ta.change(time("D")) != 0
+var float asiaH = na
+var float asiaL = na
+if newDay
+    asiaH := na
+    asiaL := na
+if inAsia
+    asiaH := na(asiaH) ? high : math.max(asiaH, high)
+    asiaL := na(asiaL) ? low  : math.min(asiaL, low)
+asiaReady = not inAsia and not na(asiaH) and not na(asiaL)
+asiaSweepH = asiaReady and high > asiaH and close < asiaH
+asiaSweepL = asiaReady and low < asiaL and close > asiaL
+
+// ── Asia range geometry + dealing range (premium/discount) ───────────────────
+asiaRange   = asiaReady ? asiaH - asiaL : na
+asiaMid     = asiaReady ? (asiaH + asiaL) * 0.5 : na
+asiaTight   = asiaReady and not na(asiaRange) and asiaRange <= safeAtr * i_asiaTightAtr
+// In which half of the Asia range is price sitting right now?
+asiaInPremium  = asiaReady and not na(asiaMid) and close >= asiaMid
+asiaInDiscount = asiaReady and not na(asiaMid) and close <  asiaMid
+// Kill window = London or NY-AM (the Judas-swing windows). bestSess defined above.
+asiaKillOk  = not i_asiaKillOnly or bestSess
+
+// ── Asia-origin sweep state (parallels the pivot-sweep machinery) ─────────────
+// We record the Asia level that was wicked, the wick extreme, and the bar, so a
+// later reclaim CLOSE back inside the range can confirm a high-grade fade MSS.
+var float asiaSweptHighLvl  = na   // Asia H wicked (closed back below)
+var int   asiaSweptHighBar  = na
+var float asiaSweptHighWick = na
+var float asiaSweptLowLvl   = na   // Asia L wicked (closed back above)
+var int   asiaSweptLowBar   = na
+var float asiaSweptLowWick  = na
+
+if newDay
+    asiaSweptHighLvl := na
+    asiaSweptHighBar := na
+    asiaSweptHighWick := na
+    asiaSweptLowLvl := na
+    asiaSweptLowBar := na
+    asiaSweptLowWick := na
+
+if asiaSweepH and (not i_asiaLockFirstSweep or na(asiaSweptHighBar))
+    asiaSweptHighLvl  := asiaH
+    asiaSweptHighBar  := bar_index
+    asiaSweptHighWick := high
+if asiaSweepL and (not i_asiaLockFirstSweep or na(asiaSweptLowBar))
+    asiaSweptLowLvl   := asiaL
+    asiaSweptLowBar   := bar_index
+    asiaSweptLowWick  := low
+
+asiaSweepHighFresh = not na(asiaSweptHighBar) and bar_index - asiaSweptHighBar <= i_asiaFreshBars
+asiaSweepLowFresh  = not na(asiaSweptLowBar)  and bar_index - asiaSweptLowBar  <= i_asiaFreshBars
+
+plot(i_showAsia and asiaReady ? asiaH : na, "Asia High", color=color.new(color.fuchsia, 45), style=plot.style_linebr)
+plot(i_showAsia and asiaReady ? asiaL : na, "Asia Low", color=color.new(color.fuchsia, 45), style=plot.style_linebr)
+
+var label asiaHLbl = na
+var label asiaLLbl = na
+if i_showAsia and i_showLinePrice and asiaReady
+    if na(asiaHLbl)
+        asiaHLbl := label.new(bar_index, asiaH, "Asia H " + str.tostring(asiaH, format.mintick), style=label.style_label_left, color=color.new(color.fuchsia, 70), textcolor=color.new(color.fuchsia, 15), size=linePriceSize)
+        asiaLLbl := label.new(bar_index, asiaL, "Asia L " + str.tostring(asiaL, format.mintick), style=label.style_label_left, color=color.new(color.fuchsia, 70), textcolor=color.new(color.fuchsia, 15), size=linePriceSize)
+    else
+        label.set_xy(asiaHLbl, bar_index, asiaH)
+        label.set_text(asiaHLbl, "Asia H " + str.tostring(asiaH, format.mintick))
+        label.set_xy(asiaLLbl, bar_index, asiaL)
+        label.set_text(asiaLLbl, "Asia L " + str.tostring(asiaL, format.mintick))
+else
+    if not na(asiaHLbl)
+        label.delete(asiaHLbl)
+        asiaHLbl := na
+        label.delete(asiaLLbl)
+        asiaLLbl := na
+
+// ─── SWING PIVOTS / LIQUIDITY LINES ──────────────────────────────────────────
+ph = ta.pivothigh(high, effPivotLen, effPivotLen)
+pl = ta.pivotlow (low,  effPivotLen, effPivotLen)
+var string structDir = "RANGE"
+
+var line[]  buyLines  = array.new_line()      // SSL: pivot lows = sell-side liquidity below
+var float[] buyPrices = array.new_float()
+var label[] buyLabels = array.new_label()
+var line[]  sellLines = array.new_line()      // BSL: pivot highs = buy-side liquidity above
+var float[] sellPrices = array.new_float()
+var label[] sellLabels = array.new_label()
+var line[] sweptLines = array.new_line()
+var int[]  sweptBornBars = array.new_int()
+
+// New SSL (pivot low) — only if not already broken in the confirming window
+if not na(pl)
+    broken = false
+    for n = 0 to effPivotLen - 1
+        if low[n] < pl
+            broken := true
+            break
+    if not broken
+        pvBar = bar_index[effPivotLen]
+        ln = line.new(pvBar, pl, bar_index + i_levelExt, pl,
+             color=i_showLiq ? color.new(color.teal, 0) : color.new(color.teal, 100), width=2)
+        lb = i_showLiq and i_showLinePrice ? label.new(bar_index + i_levelExt, pl,
+             "SSL " + str.tostring(pl, format.mintick), style=label.style_label_left,
+             color=color.new(color.teal, 20), textcolor=color.white, size=linePriceSize) : na
+        array.push(buyLines, ln)
+        array.push(buyPrices, pl)
+        array.push(buyLabels, lb)
+        if array.size(buyLines) > i_maxLines
+            line.delete(array.shift(buyLines))
+            array.shift(buyPrices)
+            oldLb = array.shift(buyLabels)
+            if not na(oldLb)
+                label.delete(oldLb)
+
+// New BSL (pivot high)
+if not na(ph)
+    broken = false
+    for n = 0 to effPivotLen - 1
+        if high[n] > ph
+            broken := true
+            break
+    if not broken
+        pvBar = bar_index[effPivotLen]
+        ln = line.new(pvBar, ph, bar_index + i_levelExt, ph,
+             color=i_showLiq ? color.new(color.maroon, 0) : color.new(color.maroon, 100), width=2)
+        lb = i_showLiq and i_showLinePrice ? label.new(bar_index + i_levelExt, ph,
+             "BSL " + str.tostring(ph, format.mintick), style=label.style_label_left,
+             color=color.new(color.maroon, 20), textcolor=color.white, size=linePriceSize) : na
+        array.push(sellLines, ln)
+        array.push(sellPrices, ph)
+        array.push(sellLabels, lb)
+        if array.size(sellLines) > i_maxLines
+            line.delete(array.shift(sellLines))
+            array.shift(sellPrices)
+            oldLb = array.shift(sellLabels)
+            if not na(oldLb)
+                label.delete(oldLb)
+
+// Nearest unswept liquidity each side (for dashboard + highlight)
+float nearestBSL = na     // nearest pivot high above price
+float nearestSSL = na     // nearest pivot low below price
+if array.size(sellPrices) > 0
+    for n = 0 to array.size(sellPrices) - 1
+        c = array.get(sellPrices, n)
+        if c > close and (na(nearestBSL) or c < nearestBSL)
+            nearestBSL := c
+if array.size(buyPrices) > 0
+    for n = 0 to array.size(buyPrices) - 1
+        c = array.get(buyPrices, n)
+        if c < close and (na(nearestSSL) or c > nearestSSL)
+            nearestSSL := c
+
+// ─── SWEEP DETECTION (the first half of a true MSS) ──────────────────────────
+// A sweep = wick takes a level but price does NOT yet confirm a reclaim.
+// We record the swept level + bar; the MSS only fires when a later close
+// reclaims back through it within the fresh window.
+var float sweptHighLvl = na     // a BSL was swept (wicked above, closed back below)
+var int   sweptHighBar = na
+var float sweptHighWick = na
+var float sweptLowLvl  = na     // an SSL was swept (wicked below, closed back above)
+var int   sweptLowBar  = na
+var float sweptLowWick = na
+
+bool justSweptHigh = false
+bool justSweptLow  = false
+pickNearest = i_sweepPickMode == "Nearest To Close"
+pickDeepest = i_sweepPickMode == "Deepest Penetration"
+pickLegacy  = not pickNearest and not pickDeepest
+float candHighLvl = na
+float candHighPen = na
+float candLowLvl = na
+float candLowPen = na
+
+// Check BSL sweeps (pivot highs)
+if array.size(sellLines) > 0
+    for n = array.size(sellLines) - 1 to 0
+        lvl = array.get(sellPrices, n)
+        ln  = array.get(sellLines, n)
+        lb  = array.get(sellLabels, n)
+        // Wick took the level but the candle closed back below = sweep (not a clean break).
+        if high >= lvl and close < lvl
+            justSweptHigh := true
+            if pickLegacy
+                sweptHighLvl  := lvl
+                sweptHighBar  := bar_index
+                sweptHighWick := high
+            else
+                pen = high - lvl
+                if na(candHighLvl)
+                    candHighLvl := lvl
+                    candHighPen := pen
+                else if (pickNearest and math.abs(close - lvl) < math.abs(close - candHighLvl)) or (pickDeepest and pen > nz(candHighPen, pen))
+                    candHighLvl := lvl
+                    candHighPen := pen
+            // fade + mark the consumed level, then drop from active set
+            line.set_x2(ln, bar_index)
+            line.set_color(ln, color.new(color.maroon, 70))
+            line.set_style(ln, line.style_dashed)
+            array.push(sweptLines, ln)
+            array.push(sweptBornBars, bar_index)
+            if i_showSweepTags
+                label.new(bar_index, lvl + safeAtr * 0.35, "SWEEP", style=label.style_none,
+                     textcolor=color.red, size=size.tiny)
+            if not na(lb)
+                label.delete(lb)
+            array.remove(sellLines, n)
+            array.remove(sellPrices, n)
+            array.remove(sellLabels, n)
+
+// Check SSL sweeps (pivot lows)
+if array.size(buyLines) > 0
+    for n = array.size(buyLines) - 1 to 0
+        lvl = array.get(buyPrices, n)
+        ln  = array.get(buyLines, n)
+        lb  = array.get(buyLabels, n)
+        if low <= lvl and close > lvl
+            justSweptLow := true
+            if pickLegacy
+                sweptLowLvl  := lvl
+                sweptLowBar  := bar_index
+                sweptLowWick := low
+            else
+                pen = lvl - low
+                if na(candLowLvl)
+                    candLowLvl := lvl
+                    candLowPen := pen
+                else if (pickNearest and math.abs(close - lvl) < math.abs(close - candLowLvl)) or (pickDeepest and pen > nz(candLowPen, pen))
+                    candLowLvl := lvl
+                    candLowPen := pen
+            line.set_x2(ln, bar_index)
+            line.set_color(ln, color.new(color.teal, 70))
+            line.set_style(ln, line.style_dashed)
+            array.push(sweptLines, ln)
+            array.push(sweptBornBars, bar_index)
+            if i_showSweepTags
+                label.new(bar_index, lvl - safeAtr * 0.35, "SWEEP", style=label.style_none,
+                     textcolor=color.lime, size=size.tiny)
+            if not na(lb)
+                label.delete(lb)
+            array.remove(buyLines, n)
+            array.remove(buyPrices, n)
+            array.remove(buyLabels, n)
+
+if justSweptHigh and not pickLegacy and not na(candHighLvl)
+    sweptHighLvl := candHighLvl
+    sweptHighBar := bar_index
+    sweptHighWick := high
+if justSweptLow and not pickLegacy and not na(candLowLvl)
+    sweptLowLvl := candLowLvl
+    sweptLowBar := bar_index
+    sweptLowWick := low
+
+// Keep active (unswept) lines extended to the right and highlight the nearest.
+if array.size(buyLines) > 0
+    for n = 0 to array.size(buyLines) - 1
+        ln = array.get(buyLines, n)
+        lvl = array.get(buyPrices, n)
+        lb = array.get(buyLabels, n)
+        isNearest = not na(nearestSSL) and math.abs(lvl - nearestSSL) <= syminfo.mintick * 2
+        line.set_x2(ln, bar_index + i_levelExt)
+        line.set_color(ln, i_showLiq ? (isNearest ? color.new(color.teal, 0) : color.new(color.teal, 55)) : color.new(color.teal, 100))
+        line.set_width(ln, isNearest ? 2 : 1)
+        if not na(lb)
+            label.set_x(lb, bar_index + i_levelExt)
+            label.set_y(lb, lvl)
+            label.set_textcolor(lb, isNearest and i_showLinePrice ? color.white : color.new(color.white, 45))
+
+if array.size(sellLines) > 0
+    for n = 0 to array.size(sellLines) - 1
+        ln = array.get(sellLines, n)
+        lvl = array.get(sellPrices, n)
+        lb = array.get(sellLabels, n)
+        isNearest = not na(nearestBSL) and math.abs(lvl - nearestBSL) <= syminfo.mintick * 2
+        line.set_x2(ln, bar_index + i_levelExt)
+        line.set_color(ln, i_showLiq ? (isNearest ? color.new(color.maroon, 0) : color.new(color.maroon, 55)) : color.new(color.maroon, 100))
+        line.set_width(ln, isNearest ? 2 : 1)
+        if not na(lb)
+            label.set_x(lb, bar_index + i_levelExt)
+            label.set_y(lb, lvl)
+            label.set_textcolor(lb, isNearest and i_showLinePrice ? color.white : color.new(color.white, 45))
+
+// Remove consumed levels after the configured expiry window.
+if array.size(sweptLines) > 0
+    for n = array.size(sweptLines) - 1 to 0
+        bornBar = array.get(sweptBornBars, n)
+        if bar_index - bornBar >= i_liqExpireBars
+            line.delete(array.get(sweptLines, n))
+            array.remove(sweptLines, n)
+            array.remove(sweptBornBars, n)
+
+// Freshness of the most recent sweep on each side.
+sweepHighFresh = not na(sweptHighBar) and bar_index - sweptHighBar <= effSweepFreshBars
+sweepLowFresh  = not na(sweptLowBar)  and bar_index - sweptLowBar  <= effSweepFreshBars
+
+// ─── TRUE MSS (sweep + reclaim close) ────────────────────────────────────────
+// Bullish MSS: an SSL was swept (low taken, closed back above) recently, and
+//   now a candle CLOSES back above that swept level with conviction (close>open).
+//   The sweep grabbed sell-side liquidity; the reclaim confirms the shift up.
+// Bearish MSS: a BSL was swept recently, and a candle CLOSES back below it.
+// Reclaim must show conviction, not just a weak green/red close back over the level.
+// i_mssReclaimDisp scales the body requirement (fraction of ATR). 0 = old behaviour.
+i_mssReclaimDisp = input.float(0.5, "MSS Reclaim Displacement (ATR frac)", minval=0.0, maxval=1.5, step=0.05, group=grpMss,
+     tooltip="Require the reclaim candle body to be at least this fraction of ATR. 0 = any close (old behaviour). ~0.5 cuts weak reclaims on 3m XAU.")
+reclaimBodyOk = body >= safeAtr * i_mssReclaimDisp
+reclaimLongNearOk = not i_reclaimProxGate or (not na(sweptLowLvl) and low <= sweptLowLvl + safeAtr * i_reclaimMaxDistAtr)
+reclaimShortNearOk = not i_reclaimProxGate or (not na(sweptHighLvl) and high >= sweptHighLvl - safeAtr * i_reclaimMaxDistAtr)
+mssBullPivot = barstate.isconfirmed and sweepLowFresh and not na(sweptLowLvl) and not na(sweptLowBar) and bar_index > sweptLowBar and close > sweptLowLvl and close > open and reclaimBodyOk and reclaimLongNearOk
+mssBearPivot = barstate.isconfirmed and sweepHighFresh and not na(sweptHighLvl) and not na(sweptHighBar) and bar_index > sweptHighBar and close < sweptHighLvl and close < open and reclaimBodyOk and reclaimShortNearOk
+
+// ── ASIA-ORIGIN RECLAIM MSS (fade the Asia sweep) ────────────────────────────
+// Bullish: Asia LOW swept (fresh) → candle CLOSES back inside the range (above
+//   asiaL) with conviction. Optional gates: kill window + discount half.
+// Bearish: Asia HIGH swept (fresh) → candle CLOSES back inside (below asiaH).
+asiaPdLongOk  = not i_asiaPdGate or asiaInDiscount
+asiaPdShortOk = not i_asiaPdGate or asiaInPremium
+asiaReclaimLongNearOk = not i_reclaimProxGate or (not na(asiaSweptLowLvl) and low <= asiaSweptLowLvl + safeAtr * i_reclaimMaxDistAtr)
+asiaReclaimShortNearOk = not i_reclaimProxGate or (not na(asiaSweptHighLvl) and high >= asiaSweptHighLvl - safeAtr * i_reclaimMaxDistAtr)
+asiaMssBull = i_asiaSignal and barstate.isconfirmed and asiaKillOk and asiaSweepLowFresh and
+     not na(asiaSweptLowLvl) and not na(asiaSweptLowBar) and bar_index > asiaSweptLowBar and
+     close > asiaSweptLowLvl and close > open and reclaimBodyOk and asiaPdLongOk and asiaReclaimLongNearOk
+asiaMssBear = i_asiaSignal and barstate.isconfirmed and asiaKillOk and asiaSweepHighFresh and
+     not na(asiaSweptHighLvl) and not na(asiaSweptHighBar) and bar_index > asiaSweptHighBar and
+     close < asiaSweptHighLvl and close < open and reclaimBodyOk and asiaPdShortOk and asiaReclaimShortNearOk
+
+// Fold Asia reclaim into the main MSS so it inherits confluence/quality/risk/POI.
+mssBull = mssBullPivot or asiaMssBull
+mssBear = mssBearPivot or asiaMssBear
+// Origin flag for this bar's MSS (used for quality boost + SL geometry).
+mssBullIsAsia = asiaMssBull and not mssBullPivot
+mssBearIsAsia = asiaMssBear and not mssBearPivot
+var int lastRawMssBullBar = na
+var int lastRawMssBearBar = na
+if mssBull
+    lastRawMssBullBar := bar_index
+if mssBear
+    lastRawMssBearBar := bar_index
+recentRawMssBull = not na(lastRawMssBullBar) and bar_index - lastRawMssBullBar <= effMssMemBars
+recentRawMssBear = not na(lastRawMssBearBar) and bar_index - lastRawMssBearBar <= effMssMemBars
+// ─── CVD DELTA CONFLUENCE (order-flow PROXY, not a true footprint) ────────────
+// Pine cannot see tick bid/ask, so a real footprint is impossible here. The
+// honest ceiling is this: pull lower-TF OHLCV and estimate each sub-bar's delta
+// as signed volume by close direction, then sum it over a short window. It
+// APPROXIMATES aggressor side; it does not measure it. On spot XAU the volume is
+// broker tick-volume, so read the sign and relative magnitude, not the raw units.
+f_ltfDelta() =>
+    d = request.security_lower_tf(syminfo.tickerid, i_cvdLtf, (close > open ? volume : close < open ? -volume : 0.0))
+    s = 0.0
+    if array.size(d) > 0
+        for i = 0 to array.size(d) - 1
+            s += array.get(d, i)
+    s
+barDelta = i_useCvd ? f_ltfDelta() : 0.0
+cvdWindowDelta = math.sum(barDelta, i_cvdWindow)
+// Aligned = delta sign matches the trade direction AND clears the magnitude floor.
+cvdLongAligned  = cvdWindowDelta >  i_cvdMinDelta
+cvdShortAligned = cvdWindowDelta < -i_cvdMinDelta
+// Score-only never blocks; hard-gate blocks only when delta clearly OPPOSES.
+// Neutral delta (between thresholds) always passes — it withholds the point, not the trade.
+cvdLongOk  = not i_useCvd or i_cvdMode == "Score Only" or not cvdShortAligned
+cvdShortOk = not i_useCvd or i_cvdMode == "Score Only" or not cvdLongAligned
+cvdStr = not i_useCvd ? "OFF" : cvdLongAligned ? "BULL" : cvdShortAligned ? "BEAR" : "FLAT"
+cvdCol = cvdLongAligned ? color.lime : cvdShortAligned ? color.red : color.gray
+
+plot(i_showCvd ? cvdWindowDelta : na, "CVD Window Delta", color=cvdWindowDelta >= 0 ? color.teal : color.maroon)
+
+stLongOk  = not i_useStFilter or stBull
+stShortOk = not i_useStFilter or not stBull
+aroonLongOk  = not i_useAroon or aroonOsc > effAroonThres
+aroonShortOk = not i_useAroon or aroonOsc < -effAroonThres
+stFlipLongOk  = not effRequireStFlip or stFlipBull
+stFlipShortOk = not effRequireStFlip or stFlipBear
+vwapGateLongOk = effVwapMode == "Hard Gate" ? vwapLongOk : true
+vwapGateShortOk = effVwapMode == "Hard Gate" ? vwapShortOk : true
+mssBullFiltered = mssBull and stLongOk and aroonLongOk and stFlipLongOk and vwapGateLongOk and cvdLongOk
+mssBearFiltered = mssBear and stShortOk and aroonShortOk and stFlipShortOk and vwapGateShortOk and cvdShortOk
+
+var string flowDir = "RANGE"
+var int    flowBar = na
+asiaBoostLong  = (mssBullIsAsia ? i_asiaQualBoost : 0) + ((i_asiaTightMod and mssBullIsAsia and asiaTight) ? 1 : 0)
+asiaBoostShort = (mssBearIsAsia ? i_asiaQualBoost : 0) + ((i_asiaTightMod and mssBearIsAsia and asiaTight) ? 1 : 0)
+liqScoreLong = i_qualityUseFreshSweep ? (asiaSweepLowFresh or sweepLowFresh ? 1 : 0) : (asiaSweepL or justSweptLow ? 1 : 0)
+liqScoreShort = i_qualityUseFreshSweep ? (asiaSweepHighFresh or sweepHighFresh ? 1 : 0) : (asiaSweepH or justSweptHigh ? 1 : 0)
+qualityLong = (mssBull ? 2 : 0) + (biasLong ? 1 : 0) + (flowDir == "BULL" ? 1 : 0) + (bestSess or inNyPm ? 1 : 0) + liqScoreLong + ((not i_useVwapFilter or vwapLongOk) ? 1 : 0) + asiaBoostLong + ((i_useCvd and cvdLongAligned) ? 1 : 0)
+qualityShort = (mssBear ? 2 : 0) + (biasShort ? 1 : 0) + (flowDir == "BEAR" ? 1 : 0) + (bestSess or inNyPm ? 1 : 0) + liqScoreShort + ((not i_useVwapFilter or vwapShortOk) ? 1 : 0) + asiaBoostShort + ((i_useCvd and cvdShortAligned) ? 1 : 0)
+qualityLongOk = qualityLong >= math.max(i_qualityBaseMin, effMinQuality)
+qualityShortOk = qualityShort >= math.max(i_qualityBaseMin, effMinQuality)
+
+var int   lastMssBar = na
+var string mssDir = "RANGE"
+var float poiTop = na
+var float poiBot = na
+var int   poiStartBar = na
+var string poiDir = "NONE"  // LONG | SHORT | NONE
+var box   poiBox = na
+var line  poiMid = na
+var int lastLongSignalBar = na
+var int lastShortSignalBar = na
+var string activeOppDir = "NONE"
+cooldownLongOk = na(lastLongSignalBar) or bar_index - lastLongSignalBar > effFlowCooldownBars
+cooldownShortOk = na(lastShortSignalBar) or bar_index - lastShortSignalBar > effFlowCooldownBars
+reEntryLongOk = effAllowReEntry and activeOppDir == "LONG"
+reEntryShortOk = effAllowReEntry and activeOppDir == "SHORT"
+oppLongOk = activeOppDir != "LONG" or reEntryLongOk
+oppShortOk = activeOppDir != "SHORT" or reEntryShortOk
+
+signalLong = mssBullFiltered and qualityLongOk and cooldownLongOk and oppLongOk
+signalShort = mssBearFiltered and qualityShortOk and cooldownShortOk and oppShortOk
+
+// Effective swept reference for POI + SL: use Asia level/wick when MSS is Asia-origin.
+effSweptLowLvl   = mssBullIsAsia and not na(asiaSweptLowLvl)  ? asiaSweptLowLvl  : sweptLowLvl
+effSweptLowWick  = mssBullIsAsia and not na(asiaSweptLowWick) ? asiaSweptLowWick : sweptLowWick
+effSweptHighLvl  = mssBearIsAsia and not na(asiaSweptHighLvl) ? asiaSweptHighLvl : sweptHighLvl
+effSweptHighWick = mssBearIsAsia and not na(asiaSweptHighWick) ? asiaSweptHighWick : sweptHighWick
+
+if signalLong
+    lastMssBar := bar_index
+    mssDir := "BULL"
+    poiDir := "LONG"
+    poiStartBar := bar_index
+    bullTopRaw = effSweptLowLvl
+    bullBotRaw = math.min(effSweptLowWick, effSweptLowLvl)
+    poiTop := bullTopRaw + safeAtr * i_poiAtrPad
+    poiBot := bullBotRaw - safeAtr * i_poiAtrPad
+    lastLongSignalBar := bar_index
+    activeOppDir := "LONG"
+    if i_showSweepTags
+        label.new(bar_index, low - safeAtr * 0.6, mssBullIsAsia ? "MSS▲ ASIA" : "MSS▲", style=label.style_label_up,
+             color=color.new(color.lime, 15), textcolor=color.white, size=size.small)
+if signalShort
+    lastMssBar := bar_index
+    mssDir := "BEAR"
+    poiDir := "SHORT"
+    poiStartBar := bar_index
+    bearTopRaw = math.max(effSweptHighWick, effSweptHighLvl)
+    bearBotRaw = effSweptHighLvl
+    poiTop := bearTopRaw + safeAtr * i_poiAtrPad
+    poiBot := bearBotRaw - safeAtr * i_poiAtrPad
+    lastShortSignalBar := bar_index
+    activeOppDir := "SHORT"
+    if i_showSweepTags
+        label.new(bar_index, high + safeAtr * 0.6, mssBearIsAsia ? "MSS▼ ASIA" : "MSS▼", style=label.style_label_down,
+             color=color.new(color.red, 15), textcolor=color.white, size=size.small)
+
+// ─── FLOW (decaying read of the most recent MSS) ─────────────────────────────
+if signalLong
+    flowDir := "BULL"
+    flowBar := bar_index
+else if signalShort
+    flowDir := "BEAR"
+    flowBar := bar_index
+else if not na(flowBar) and bar_index - flowBar > effMssMemBars
+    flowDir := "RANGE"
+flowFresh = not na(flowBar) and bar_index - flowBar <= effMssMemBars
+flowCol   = flowDir == "BULL" ? color.lime : flowDir == "BEAR" ? color.red : color.gray
+
+// ─── POI ENTRY ZONE (from latest filtered MSS) ───────────────────────────────
+poiAge = na(poiStartBar) ? na : bar_index - poiStartBar
+poiFresh = not na(poiAge) and poiAge <= i_poiKeepBars
+poiActive = i_showPoi and poiFresh and poiDir != "NONE" and not na(poiTop) and not na(poiBot)
+
+if poiActive and poiDir == "LONG" and close < poiBot
+    poiActive := false
+if poiActive and poiDir == "SHORT" and close > poiTop
+    poiActive := false
+
+if not poiActive
+    poiDir := "NONE"
+    poiTop := na
+    poiBot := na
+    poiStartBar := na
+
+poiTouchLong = poiActive and poiDir == "LONG" and bar_index > poiStartBar and low <= poiTop and high >= poiBot
+poiTouchShort = poiActive and poiDir == "SHORT" and bar_index > poiStartBar and high >= poiBot and low <= poiTop
+var bool prevPoiTouchLong = false
+var bool prevPoiTouchShort = false
+newPoiTouchLong = poiTouchLong and not prevPoiTouchLong
+newPoiTouchShort = poiTouchShort and not prevPoiTouchShort
+prevPoiTouchLong := poiTouchLong
+prevPoiTouchShort := poiTouchShort
+
+if i_showPoi and poiActive
+    boxCol = poiDir == "LONG" ? color.new(color.lime, 84) : color.new(color.red, 84)
+    brdCol = poiDir == "LONG" ? color.new(color.lime, 20) : color.new(color.red, 20)
+    midCol = poiDir == "LONG" ? color.new(color.lime, 0) : color.new(color.red, 0)
+    if na(poiBox)
+        poiBox := box.new(poiStartBar, poiTop, bar_index + i_poiExtendBars, poiBot,
+             bgcolor=boxCol, border_color=brdCol, border_width=1)
+    else
+        box.set_left(poiBox, poiStartBar)
+        box.set_right(poiBox, bar_index + i_poiExtendBars)
+        box.set_top(poiBox, poiTop)
+        box.set_bottom(poiBox, poiBot)
+        box.set_bgcolor(poiBox, boxCol)
+        box.set_border_color(poiBox, brdCol)
+    poiMidY = (poiTop + poiBot) * 0.5
+    if na(poiMid)
+        poiMid := line.new(poiStartBar, poiMidY, bar_index + i_poiExtendBars, poiMidY,
+             color=midCol, width=1, style=line.style_dotted)
+    else
+        line.set_x1(poiMid, poiStartBar)
+        line.set_x2(poiMid, bar_index + i_poiExtendBars)
+        line.set_y1(poiMid, poiMidY)
+        line.set_y2(poiMid, poiMidY)
+        line.set_color(poiMid, midCol)
+else
+    if not na(poiBox)
+        box.delete(poiBox)
+        poiBox := na
+    if not na(poiMid)
+        line.delete(poiMid)
+        poiMid := na
+
+plotshape(i_showPoiTouches and newPoiTouchLong, title="POI Long Touch", style=shape.triangleup, location=location.belowbar,
+     color=color.lime, text="POI L", textcolor=color.white, size=size.tiny)
+plotshape(i_showPoiTouches and newPoiTouchShort, title="POI Short Touch", style=shape.triangledown, location=location.abovebar,
+     color=color.red, text="POI S", textcolor=color.white, size=size.tiny)
+
+// ─── RISK PLAN OVERLAY (visual only) ─────────────────────────────────────────
+longSlRaw = signalLong and not na(effSweptLowWick) ? effSweptLowWick - safeAtr * effSlAtr : na
+shortSlRaw = signalShort and not na(effSweptHighWick) ? effSweptHighWick + safeAtr * effSlAtr : na
+longRisk = not na(longSlRaw) ? close - longSlRaw : na
+shortRisk = not na(shortSlRaw) ? shortSlRaw - close : na
+// TP target: for Asia-origin fades, aim at the opposite Asia line (fallback Asia mid),
+// which gives the natural range-fade RR. Otherwise use nearest opposite liquidity / RR fallback.
+longAsiaTp  = mssBullIsAsia ? (not na(asiaH) and asiaH > close ? asiaH : (not na(asiaMid) and asiaMid > close ? asiaMid : na)) : na
+shortAsiaTp = mssBearIsAsia ? (not na(asiaL) and asiaL < close ? asiaL : (not na(asiaMid) and asiaMid < close ? asiaMid : na)) : na
+longTpRaw = signalLong and not na(longRisk) and longRisk > syminfo.mintick ? (not na(longAsiaTp) ? longAsiaTp : (not na(nearestBSL) and nearestBSL > close ? nearestBSL : close + longRisk * effRrFallback)) : na
+shortTpRaw = signalShort and not na(shortRisk) and shortRisk > syminfo.mintick ? (not na(shortAsiaTp) ? shortAsiaTp : (not na(nearestSSL) and nearestSSL < close ? nearestSSL : close - shortRisk * effRrFallback)) : na
+longRr = not na(longRisk) and longRisk > 0 and not na(longTpRaw) ? (longTpRaw - close) / longRisk : na
+shortRr = not na(shortRisk) and shortRisk > 0 and not na(shortTpRaw) ? (close - shortTpRaw) / shortRisk : na
+longRiskOk = not na(longRisk) and longRisk >= effMinRisk and longRisk <= safeAtr * effMaxSlAtr and nz(longRr, 0) >= effMinRr
+shortRiskOk = not na(shortRisk) and shortRisk >= effMinRisk and shortRisk <= safeAtr * effMaxSlAtr and nz(shortRr, 0) >= effMinRr
+
+f_riskReason(float risk, float rr) =>
+    na(risk) ? "NO SL" : risk < effMinRisk ? "RISK < MIN" : risk > safeAtr * effMaxSlAtr ? "SL TOO WIDE" : nz(rr, 0) < effMinRr ? "RR TOO LOW" : "OK"
+
+longRiskReason = f_riskReason(longRisk, longRr)
+shortRiskReason = f_riskReason(shortRisk, shortRr)
+riskBlockedLong = signalLong and not longRiskOk
+riskBlockedShort = signalShort and not shortRiskOk
+tradeLong = signalLong and longRiskOk
+tradeShort = signalShort and shortRiskOk
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PATH B — MOMENTUM BREAK (range-break continuation, bias-aligned)
+// Independent of Path A (sweep-reclaim above). Fires when a coiled range is
+// broken by a displacement close, FLOW agrees, and the break is on the side
+// the HTF bias already supports. Never fires on a bar Path A already armed.
+// Stop = far side of the broken range + ATR buffer (structural invalidation).
+// ═══════════════════════════════════════════════════════════════════════════
+// Side lock derived locally (macroBull/macroBear are defined later for the dash).
+pbSideLong  = structDir == "BULL" or (structDir == "RANGE" and biasLong and not biasShort)
+pbSideShort = structDir == "BEAR" or (structDir == "RANGE" and biasShort and not biasLong)
+
+// Range geometry over the lookback (exclude the current/break bar itself).
+pbRangeHi = ta.highest(high[1], i_pbRangeBars)
+pbRangeLo = ta.lowest(low[1], i_pbRangeBars)
+pbRangeH  = not na(pbRangeHi) and not na(pbRangeLo) ? pbRangeHi - pbRangeLo : na
+pbIsCoil  = not na(pbRangeH) and pbRangeH <= safeAtr * i_pbTightAtr
+
+// Break = decisive close beyond the prior range edge with displacement body.
+pbBodyOk     = body >= safeAtr * i_pbDispMult
+pbBreakUpRaw = pbIsCoil and close > pbRangeHi and pbBodyOk and close > open
+pbBreakDnRaw = pbIsCoil and close < pbRangeLo and pbBodyOk and close < open
+
+// Flow / delta agreement (optional gate).
+pbFlowUpOk = not i_pbRequireFlow or (flowDir == "BULL" and (not i_useCvd or cvdLongAligned))
+pbFlowDnOk = not i_pbRequireFlow or (flowDir == "BEAR" and (not i_useCvd or cvdShortAligned))
+
+// Suppress if Path A already armed this bar (no conflicting double-signals).
+pbNoPathA = not tradeLong and not tradeShort
+
+pbBreakUp = i_pbEnable and barstate.isconfirmed and pbBreakUpRaw and pbSideLong  and pbFlowUpOk and pbNoPathA
+pbBreakDn = i_pbEnable and barstate.isconfirmed and pbBreakDnRaw and pbSideShort and pbFlowDnOk and pbNoPathA
+
+// Structural stop = opposite range edge +/- buffer; entry = break close.
+pbLongEntry = pbBreakUp ? close : na
+pbLongSl    = pbBreakUp ? pbRangeLo - safeAtr * i_pbSlAtrBuf : na
+pbLongRisk  = not na(pbLongSl) ? pbLongEntry - pbLongSl : na
+pbShortEntry= pbBreakDn ? close : na
+pbShortSl   = pbBreakDn ? pbRangeHi + safeAtr * i_pbSlAtrBuf : na
+pbShortRisk = not na(pbShortSl) ? pbShortSl - pbShortEntry : na
+
+// Target = nearest opposite liquidity, else RR fallback. Min RR floor reused.
+pbLongTp  = pbBreakUp and not na(pbLongRisk) and pbLongRisk > syminfo.mintick ?
+     (not na(nearestBSL) and nearestBSL > close ? nearestBSL : close + pbLongRisk * effRrFallback) : na
+pbShortTp = pbBreakDn and not na(pbShortRisk) and pbShortRisk > syminfo.mintick ?
+     (not na(nearestSSL) and nearestSSL < close ? nearestSSL : close - pbShortRisk * effRrFallback) : na
+pbLongRr  = not na(pbLongRisk) and pbLongRisk > 0 and not na(pbLongTp) ? (pbLongTp - close) / pbLongRisk : na
+pbShortRr = not na(pbShortRisk) and pbShortRisk > 0 and not na(pbShortTp) ? (close - pbShortTp) / pbShortRisk : na
+
+// Same risk gates as Path A: within min-risk / max-SL-width / min-RR.
+pbLongOk  = not na(pbLongRisk)  and pbLongRisk  >= effMinRisk and pbLongRisk  <= safeAtr * effMaxSlAtr and nz(pbLongRr, 0)  >= effMinRr
+pbShortOk = not na(pbShortRisk) and pbShortRisk >= effMinRisk and pbShortRisk <= safeAtr * effMaxSlAtr and nz(pbShortRr, 0) >= effMinRr
+
+pbArmLong  = pbBreakUp and pbLongOk
+pbArmShort = pbBreakDn and pbShortOk
+
+// Path B break box (kept visually distinct from Path A's sweep-reclaim boxes).
+var box pbBox = na
+if i_pbEnable and i_pbShowBox and (pbArmLong or pbArmShort)
+    pbCol = pbArmLong ? color.new(color.aqua, 60) : color.new(color.fuchsia, 60)
+    pbTop = pbArmLong ? pbLongTp : pbShortEntry
+    pbBot = pbArmLong ? pbLongEntry : pbShortTp
+    pbTxt = (pbArmLong ? "▲ PATH B BREAK LONG" : "▼ PATH B BREAK SHORT") + "\nRR " + str.tostring(pbArmLong ? pbLongRr : pbShortRr, "#.#") + "R"
+    pbBox := box.new(bar_index, pbTop, bar_index + 20, pbBot,
+         bgcolor=pbCol, border_color=pbArmLong ? color.aqua : color.fuchsia, border_width=2,
+         text=pbTxt, text_color=color.white, text_size=size.small, text_halign=text.align_left)
+
+pbStateStr = pbArmLong ? "ARMED LONG" : pbArmShort ? "ARMED SHORT" :
+     not i_pbEnable ? "OFF" : pbIsCoil ? "COIL — WATCH BREAK" : "—"
+pbStateCol = pbArmLong ? color.aqua : pbArmShort ? color.fuchsia : not i_pbEnable ? color.gray : pbIsCoil ? color.yellow : color.gray
+
+var line planELine = na
+var line planSLine = na
+var line planTLine = na
+var label planLbl = na
+var string planSide = "NONE"
+var float planEntry = na
+var float planSl = na
+var float planTp = na
+var float planRr = na
+var int planBar = na
+
+if tradeLong
+    planSide := "LONG"
+    planEntry := close
+    planSl := longSlRaw
+    planTp := longTpRaw
+    planRr := longRr
+    planBar := bar_index
+else if tradeShort
+    planSide := "SHORT"
+    planEntry := close
+    planSl := shortSlRaw
+    planTp := shortTpRaw
+    planRr := shortRr
+    planBar := bar_index
+else if not na(planBar) and bar_index - planBar > 12
+    planSide := "NONE"
+    planEntry := na
+    planSl := na
+    planTp := na
+    planRr := na
+    planBar := na
+
+if i_showRiskPlan and planSide != "NONE" and not na(planEntry) and not na(planSl) and not na(planTp)
+    ext = bar_index + 12
+    if na(planELine)
+        planELine := line.new(nz(planBar, bar_index), planEntry, ext, planEntry, color=color.new(color.white, 25), style=line.style_dashed, width=1)
+        planSLine := line.new(nz(planBar, bar_index), planSl, ext, planSl, color=color.new(color.red, 0), style=line.style_solid, width=2)
+        planTLine := line.new(nz(planBar, bar_index), planTp, ext, planTp, color=color.new(color.lime, 0), style=line.style_solid, width=2)
+        planLbl := label.new(ext, planSide == "LONG" ? planSl - safeAtr * 0.4 : planSl + safeAtr * 0.4,
+             planSide + "\nRR " + str.tostring(planRr, "#.1") + "R",
+             style=planSide == "LONG" ? label.style_label_up : label.style_label_down,
+             color=planSide == "LONG" ? color.new(color.lime, 20) : color.new(color.red, 20),
+             textcolor=color.white, size=size.tiny)
+    else
+        line.set_x2(planELine, ext)
+        line.set_x2(planSLine, ext)
+        line.set_x2(planTLine, ext)
+        line.set_y1(planELine, planEntry)
+        line.set_y2(planELine, planEntry)
+        line.set_y1(planSLine, planSl)
+        line.set_y2(planSLine, planSl)
+        line.set_y1(planTLine, planTp)
+        line.set_y2(planTLine, planTp)
+        label.set_x(planLbl, ext)
+        label.set_y(planLbl, planSide == "LONG" ? planSl - safeAtr * 0.4 : planSl + safeAtr * 0.4)
+        label.set_text(planLbl, planSide + "\nRR " + str.tostring(planRr, "#.1") + "R")
+else
+    if not na(planELine)
+        line.delete(planELine)
+        line.delete(planSLine)
+        line.delete(planTLine)
+        label.delete(planLbl)
+        planELine := na
+        planSLine := na
+        planTLine := na
+        planLbl := na
+
+plotshape(i_showRiskBlocked and riskBlockedLong, title="Risk Blocked Long", style=shape.diamond, location=location.belowbar,
+     color=color.new(color.orange, 0), text="RB", textcolor=color.white, size=size.tiny)
+plotshape(i_showRiskBlocked and riskBlockedShort, title="Risk Blocked Short", style=shape.diamond, location=location.abovebar,
+     color=color.new(color.orange, 0), text="RB", textcolor=color.white, size=size.tiny)
+
+// ════════════════════════════════════════════════════════════════════════════
+// BACKTEST EXECUTION (strategy twin only — not present in the indicator)
+// Enters on the SAME tradeLong / tradeShort signals the indicator emits as
+// XAU-U13 ENTRY alerts, using the SAME plan SL (longSlRaw/shortSlRaw) and TP
+// (longTpRaw/shortTpRaw). Sizing is constant-risk so P&L == R. Window + side +
+// per-regime gates let us replicate the U9.3-style experiments (long-only vs
+// both, drop a losing regime, etc.) without touching the signal engine.
+// ════════════════════════════════════════════════════════════════════════════
+grpBT = "Backtest (strategy twin)"
+i_btStart = input.time(timestamp("2024-01-01 00:00 +0000"), "Backtest Start", group=grpBT)
+i_btEnd   = input.time(timestamp("2027-01-01 00:00 +0000"), "Backtest End",   group=grpBT)
+i_btAllowLong  = input.bool(true, "Allow LONG entries",  group=grpBT, inline="btSide")
+i_btAllowShort = input.bool(true, "Allow SHORT entries", group=grpBT, inline="btSide")
+i_btRiskUsd    = input.float(100.0, "Risk $ per trade (= 1R)", minval=1, step=10, group=grpBT,
+     tooltip="Each entry is sized so a stop-out loses about this much. Makes the tester's currency P&L track R, so Profit Factor in the report equals R-based PF.")
+i_btGateRegime = input.bool(false, "Gate entries by regime", group=grpBT,
+     tooltip="When ON, only the regimes ticked below may fire (applies to both sides).")
+i_btRegTrend     = input.bool(true, "TREND",     group=grpBT, inline="btReg")
+i_btRegExpansion = input.bool(true, "EXPANSION", group=grpBT, inline="btReg")
+i_btRegChop      = input.bool(true, "CHOP",      group=grpBT, inline="btReg")
+i_btRegNeutral   = input.bool(true, "NEUTRAL",   group=grpBT, inline="btReg")
+
+inBtWindow = time >= i_btStart and time <= i_btEnd
+btRegimeOk = not i_btGateRegime or
+     (regimeStr == "TREND" and i_btRegTrend) or
+     (regimeStr == "EXPANSION" and i_btRegExpansion) or
+     (regimeStr == "CHOP" and i_btRegChop) or
+     (regimeStr == "NEUTRAL" and i_btRegNeutral)
+
+btLong  = tradeLong  and inBtWindow and i_btAllowLong  and btRegimeOk and not na(longSlRaw)  and not na(longTpRaw)  and not na(longRisk)  and longRisk  > 0
+btShort = tradeShort and inBtWindow and i_btAllowShort and btRegimeOk and not na(shortSlRaw) and not na(shortTpRaw) and not na(shortRisk) and shortRisk > 0
+
+// Constant-risk position size: risk$ / stop-distance (points). 1 point == $1 of
+// quote here, which is the convention the live R-stats also assume.
+btLongQty  = btLong  ? i_btRiskUsd / longRisk  : na
+btShortQty = btShort ? i_btRiskUsd / shortRisk : na
+
+if btLong
+    if strategy.position_size <= 0
+        strategy.entry("L", strategy.long, qty=btLongQty)
+        strategy.exit("L exit", from_entry="L", stop=longSlRaw, limit=longTpRaw)
+if btShort
+    if strategy.position_size >= 0
+        strategy.entry("S", strategy.short, qty=btShortQty)
+        strategy.exit("S exit", from_entry="S", stop=shortSlRaw, limit=shortTpRaw)
+
+// ─── MACRO STRUCTURE (confirmed-pivot HH/HL/LH/LL) ───────────────────────────
+var float structLastH    = na
+var float structPrevH    = na
+var int   structLastHBar  = na
+var float structLastL    = na
+var float structPrevL    = na
+var int   structLastLBar  = na
+var line   structLine    = na
+
+if not na(ph)
+    structPrevH := structLastH
+    structLastH := ph
+    structLastHBar := bar_index[effPivotLen]
+    if i_showMacro
+        isHH = not na(structPrevH) and ph > structPrevH
+        label.new(bar_index[effPivotLen], ph, isHH ? "HH" : "LH",
+             style=label.style_label_down, color=color.new(isHH ? color.green : color.red, 30),
+             textcolor=color.white, size=size.tiny, yloc=yloc.abovebar)
+
+if not na(pl)
+    structPrevL := structLastL
+    structLastL := pl
+    structLastLBar := bar_index[effPivotLen]
+    if i_showMacro
+        isHL = not na(structPrevL) and pl > structPrevL
+        label.new(bar_index[effPivotLen], pl, isHL ? "HL" : "LL",
+             style=label.style_label_up, color=color.new(isHL ? color.green : color.red, 30),
+             textcolor=color.white, size=size.tiny, yloc=yloc.belowbar)
+
+// Macro direction: higher highs+lows = BULL, lower highs+lows = BEAR, else RANGE.
+if not na(structLastH) and not na(structPrevH) and not na(structLastL) and not na(structPrevL)
+    if structLastH > structPrevH and structLastL > structPrevL
+        structDir := "BULL"
+    else if structLastH < structPrevH and structLastL < structPrevL
+        structDir := "BEAR"
+    else
+        structDir := "RANGE"
+structCol = structDir == "BULL" ? color.lime : structDir == "BEAR" ? color.red : color.gray
+
+if barstate.isconfirmed and i_showStructLine
+    if not na(structLine)
+        line.delete(structLine)
+        structLine := na
+    if structDir == "BULL" and not na(structLastLBar) and not na(structPrevL)
+        structLine := line.new(structLastLBar, structLastL, bar_index, low,
+             color=color.new(color.lime, 30), width=1, style=line.style_dotted, extend=extend.right)
+    else if structDir == "BEAR" and not na(structLastHBar) and not na(structPrevH)
+        structLine := line.new(structLastHBar, structLastH, bar_index, high,
+             color=color.new(color.red, 30), width=1, style=line.style_dotted, extend=extend.right)
+
+// ─── DIRECTIONAL TURNING ZONES (T1/T2 only) ──────────────────────────────────
+dtzFill = 100 - i_dtzOpacity
+var box[] dtzBoxes = array.new_box()
+var bool[] dtzBull = array.new_bool()
+var float[] dtzTop = array.new_float()
+var float[] dtzBot = array.new_float()
+var bool[] dtzValid = array.new_bool()
+var string[] dtzLabels = array.new_string()
+var int[] dtzTier = array.new_int()
+bool dtzNewBull = false
+bool dtzNewBear = false
+bool dtzInvalidBull = false
+bool dtzInvalidBear = false
+
+f_dtzTierLabel(int tier) =>
+    tier == 1 ? "T1 MACRO" : tier == 2 ? "T2 CONT" : "T3 WATCH"
+
+f_dtzReason(bool isBull, int tier) =>
+    isBull ?
+         (tier == 1 ? ((justSweptLow or asiaSweepL) ? "BULL SWEEP REJ" : "BULL ORIGIN") :
+         tier == 2 ? "BULL CONTINUATION" : "BULL REACTION")
+         :
+         (tier == 1 ? ((justSweptHigh or asiaSweepH) ? "BEAR SWEEP REJ" : "BEAR ORIGIN") :
+         tier == 2 ? "BEAR CONTINUATION" : "BEAR REACTION")
+
+f_dtzAdd(bool isBull, int tier, float zTop, float zBot) =>
+    brdW = tier == 1 ? 3 : tier == 2 ? 2 : 1
+    fillA = tier == 1 ? math.max(i_dtzOpacity - 20, 40) : tier == 2 ? i_dtzOpacity : math.min(i_dtzOpacity + 12, 95)
+    brdA = tier == 1 ? math.max(i_dtzOpacity - 50, 0) : tier == 2 ? math.max(i_dtzOpacity - 35, 10) : math.min(i_dtzOpacity - 10, 85)
+    ext = tier == 1 ? dtzExtendUse * 3 : tier == 2 ? dtzExtendUse : math.max(int(math.round(dtzExtendUse / 2.0)), 5)
+    brdSt = tier == 3 ? line.style_dashed : line.style_solid
+    txtSz = tier == 1 ? size.small : size.tiny
+    col = isBull ? color.lime : color.red
+    lbl = (isBull ? "▲ " : "▼ ") + f_dtzTierLabel(tier) + " " + (isBull ? (tradeLong ? "READY" : "WAIT") : (tradeShort ? "READY" : "WAIT")) + "\n" + f_dtzReason(isBull, tier)
+    bx = box.new(bar_index, zTop, bar_index + ext, zBot,
+         bgcolor=color.new(col, fillA), border_color=color.new(col, brdA), border_width=brdW, border_style=brdSt,
+         text=lbl, text_color=color.white, text_size=txtSz, text_halign=text.align_center, text_valign=text.align_center)
+    array.push(dtzBoxes, bx)
+    array.push(dtzBull, isBull)
+    array.push(dtzTop, zTop)
+    array.push(dtzBot, zBot)
+    array.push(dtzValid, true)
+    array.push(dtzLabels, lbl)
+    array.push(dtzTier, tier)
+    while array.size(dtzBoxes) > dtzMaxBoxesUse
+        box.delete(array.shift(dtzBoxes))
+        array.shift(dtzBull)
+        array.shift(dtzTop)
+        array.shift(dtzBot)
+        array.shift(dtzValid)
+        array.shift(dtzLabels)
+        array.shift(dtzTier)
+
+dtzLongLoc = (poiActive and poiDir == "LONG") or justSweptLow or asiaSweepL or sweepLowFresh or (not na(nearestSSL) and close - nearestSSL <= safeAtr * 0.25)
+dtzShortLoc = (poiActive and poiDir == "SHORT") or justSweptHigh or asiaSweepH or sweepHighFresh or (not na(nearestBSL) and nearestBSL - close <= safeAtr * 0.25)
+zoneBullTurn = dtzLongLoc and (bullDisp or bullReject)
+zoneBearTurn = dtzShortLoc and (bearDisp or bearReject)
+dtzMacroBullOk = dtzParityMode ? true : (not i_dtzRequireMacro or structDir == "BULL" or (structDir == "RANGE" and biasLong and not biasShort))
+dtzMacroBearOk = dtzParityMode ? true : (not i_dtzRequireMacro or structDir == "BEAR" or (structDir == "RANGE" and biasShort and not biasLong))
+dtzMacroBull = (justSweptLow or asiaSweepL or sweepLowFresh) and zoneBullTurn
+dtzMacroBear = (justSweptHigh or asiaSweepH or sweepHighFresh) and zoneBearTurn
+dtzContBull = dtzParityMode ? ((mssBull or recentRawMssBull or sweepLowFresh) and zoneBullTurn and not dtzMacroBull) :
+     ((signalLong or (flowDir == "BULL" and flowFresh and bullDisp)) and zoneBullTurn and not dtzMacroBull)
+dtzContBear = dtzParityMode ? ((mssBear or recentRawMssBear or sweepHighFresh) and zoneBearTurn and not dtzMacroBear) :
+     ((signalShort or (flowDir == "BEAR" and flowFresh and bearDisp)) and zoneBearTurn and not dtzMacroBear)
+dtzMicroBull = zoneBullTurn and not dtzMacroBull and not dtzContBull
+dtzMicroBear = zoneBearTurn and not dtzMacroBear and not dtzContBear
+// ── Trade-side lock: mirror the dashboard's LONG ONLY / SHORT ONLY rule here ──
+// macroDir is computed later for the dashboard, but its inputs (structDir, biasLong,
+// biasShort) exist now, so we derive the same side lock without a forward reference.
+dtzSideIsLong  = structDir == "BULL" or (structDir == "RANGE" and biasLong and not biasShort)
+dtzSideIsShort = structDir == "BEAR" or (structDir == "RANGE" and biasShort and not biasLong)
+dtzBullSideOk = not i_dtzSideLock or dtzSideIsLong  or (not dtzSideIsLong and not dtzSideIsShort)
+dtzBearSideOk = not i_dtzSideLock or dtzSideIsShort or (not dtzSideIsLong and not dtzSideIsShort)
+dtzBullT1 = i_showDtz and barstate.isconfirmed and dtzMacroBullOk and dtzBullSideOk and dtzMacroBull
+dtzBullT2 = i_showDtz and barstate.isconfirmed and dtzMacroBullOk and dtzBullSideOk and dtzContBull
+dtzBullT3 = i_showDtz and i_dtzPatternOnly and barstate.isconfirmed and dtzMacroBullOk and dtzBullSideOk and dtzMicroBull
+dtzBearT1 = i_showDtz and barstate.isconfirmed and dtzMacroBearOk and dtzBearSideOk and dtzMacroBear
+dtzBearT2 = i_showDtz and barstate.isconfirmed and dtzMacroBearOk and dtzBearSideOk and dtzContBear
+dtzBearT3 = i_showDtz and i_dtzPatternOnly and barstate.isconfirmed and dtzMacroBearOk and dtzBearSideOk and dtzMicroBear
+
+if dtzBullT1
+    dtzNewBull := true
+    f_dtzAdd(true, 1, high, math.min(low, nz(sweptLowWick, low)))
+else if dtzBullT2
+    dtzNewBull := true
+    f_dtzAdd(true, 2, high, low)
+else if dtzBullT3
+    dtzNewBull := true
+    f_dtzAdd(true, 3, high, low)
+if dtzBearT1
+    dtzNewBear := true
+    f_dtzAdd(false, 1, math.max(high, nz(sweptHighWick, high)), low)
+else if dtzBearT2
+    dtzNewBear := true
+    f_dtzAdd(false, 2, high, low)
+else if dtzBearT3
+    dtzNewBear := true
+    f_dtzAdd(false, 3, high, low)
+
+if i_showDtz and array.size(dtzBoxes) > 0
+    for n = 0 to array.size(dtzBoxes) - 1
+        bx = array.get(dtzBoxes, n)
+        isBull = array.get(dtzBull, n)
+        zTop = array.get(dtzTop, n)
+        zBot = array.get(dtzBot, n)
+        isValid = array.get(dtzValid, n)
+        tier = array.get(dtzTier, n)
+        ext = tier == 1 ? dtzExtendUse * 3 : tier == 2 ? dtzExtendUse : math.max(int(math.round(dtzExtendUse / 2.0)), 5)
+        box.set_right(bx, bar_index + ext)
+        failed = isValid and (isBull ? close < zBot - safeAtr * 0.05 : close > zTop + safeAtr * 0.05)
+        if failed
+            if isBull
+                dtzInvalidBull := true
+            else
+                dtzInvalidBear := true
+            array.set(dtzValid, n, false)
+            box.set_bgcolor(bx, color.new(color.gray, 90))
+            box.set_border_color(bx, color.new(color.gray, 35))
+            box.set_text(bx, array.get(dtzLabels, n) + "\n✗ INVALID")
+            box.set_text_color(bx, color.silver)
+if not i_showDtz and array.size(dtzBoxes) > 0
+    for n = 0 to array.size(dtzBoxes) - 1
+        box.delete(array.get(dtzBoxes, n))
+    array.clear(dtzBoxes)
+    array.clear(dtzBull)
+    array.clear(dtzTop)
+    array.clear(dtzBot)
+    array.clear(dtzValid)
+    array.clear(dtzLabels)
+    array.clear(dtzTier)
+
+// ─── OPPORTUNITY MARKERS (PREP / WATCH / READY) ──────────────────────────────
+macroBull = structDir == "BULL" or (structDir == "RANGE" and biasLong and not biasShort)
+macroBear = structDir == "BEAR" or (structDir == "RANGE" and biasShort and not biasLong)
+longLoc = (poiActive and poiDir == "LONG") or justSweptLow or asiaSweepL or (not na(nearestSSL) and close - nearestSSL <= safeAtr * 0.25)
+shortLoc = (poiActive and poiDir == "SHORT") or justSweptHigh or asiaSweepH or (not na(nearestBSL) and nearestBSL - close <= safeAtr * 0.25)
+oppLongPrep = macroBull and longLoc and not tradeLong and not tradeShort
+oppShortPrep = macroBear and shortLoc and not tradeLong and not tradeShort
+oppLongWatchBase = oppLongPrep and (newPoiTouchLong or justSweptLow or signalLong or riskBlockedLong)
+oppShortWatchBase = oppShortPrep and (newPoiTouchShort or justSweptHigh or signalShort or riskBlockedShort)
+candleModeOff = not i_useCandleConfirm or i_candleMode == "Off"
+candleReadyRequired = i_useCandleConfirm and i_candleMode == "Required for READY"
+longCandleOk = bullTurnPattern and longLoc
+shortCandleOk = bearTurnPattern and shortLoc
+oppLongWatch = oppLongWatchBase and (candleModeOff or longCandleOk)
+oppShortWatch = oppShortWatchBase and (candleModeOff or shortCandleOk)
+oppLongReady = tradeLong and ((not candleReadyRequired) or longCandleOk)
+oppShortReady = tradeShort and ((not candleReadyRequired) or shortCandleOk)
+
+showPrepMarks = i_oppMarkLevel == "PREP+"
+showWatchMarks = i_oppMarkLevel == "PREP+" or i_oppMarkLevel == "WATCH+"
+showReadyMarks = true
+prepLongNew = oppLongPrep and not oppLongPrep[1]
+prepShortNew = oppShortPrep and not oppShortPrep[1]
+watchLongNew = oppLongWatch and not oppLongWatch[1]
+watchShortNew = oppShortWatch and not oppShortWatch[1]
+readyLongNew = oppLongReady and not oppLongReady[1]
+readyShortNew = oppShortReady and not oppShortReady[1]
+
+plotshape(i_showOppMarks and showPrepMarks and prepLongNew, title="Prep Long", style=shape.circle, location=location.belowbar,
+     color=color.new(color.yellow, 0), text="L PREP", textcolor=color.black, size=size.tiny)
+plotshape(i_showOppMarks and showPrepMarks and prepShortNew, title="Prep Short", style=shape.circle, location=location.abovebar,
+     color=color.new(color.yellow, 0), text="S PREP", textcolor=color.black, size=size.tiny)
+plotshape(i_showOppMarks and showWatchMarks and watchLongNew, title="Watch Long", style=shape.diamond, location=location.belowbar,
+     color=color.new(color.aqua, 0), text="L WATCH", textcolor=color.black, size=size.tiny)
+plotshape(i_showOppMarks and showWatchMarks and watchShortNew, title="Watch Short", style=shape.diamond, location=location.abovebar,
+     color=color.new(color.aqua, 0), text="S WATCH", textcolor=color.black, size=size.tiny)
+plotshape(i_showOppMarks and showReadyMarks and readyLongNew, title="Ready Long", style=shape.triangleup, location=location.belowbar,
+     color=color.new(color.lime, 0), text="L READY", textcolor=color.white, size=size.tiny)
+plotshape(i_showOppMarks and showReadyMarks and readyShortNew, title="Ready Short", style=shape.triangledown, location=location.abovebar,
+     color=color.new(color.red, 0), text="S READY", textcolor=color.white, size=size.tiny)
+
+// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+mssAgeStr = na(lastMssBar) ? "-" : str.tostring(bar_index - lastMssBar) + " bars ago"
+mssCol    = mssDir == "BULL" ? color.lime : mssDir == "BEAR" ? color.red : color.gray
+bslStr    = na(nearestBSL) ? "none above" : str.tostring(nearestBSL, format.mintick)
+sslStr    = na(nearestSSL) ? "none below" : str.tostring(nearestSSL, format.mintick)
+stStateStr = stBull ? "BULL" : "BEAR"
+stStateCol = stBull ? color.lime : color.red
+aroonStateStr = str.tostring(aroonOsc, "#.0")
+aroonStateCol = aroonOsc > effAroonThres ? color.lime : aroonOsc < -effAroonThres ? color.red : color.orange
+profileStr = i_useAutoProfiles ? activeProfile : "MANUAL"
+profileCol = activeProfile == "Aggressive" ? color.orange : activeProfile == "Conservative" ? color.aqua : color.lime
+confLongOk = stLongOk and aroonLongOk and stFlipLongOk
+confShortOk = stShortOk and aroonShortOk and stFlipShortOk
+confStr = confLongOk ? "LONG OK" : confShortOk ? "SHORT OK" : "BLOCKED"
+confCol = confLongOk ? color.lime : confShortOk ? color.red : color.orange
+poiStr = poiActive ? (poiDir + " " + str.tostring(poiBot, format.mintick) + " → " + str.tostring(poiTop, format.mintick)) : "none"
+poiCol = poiActive ? (poiDir == "LONG" ? color.lime : color.red) : color.gray
+asiaStr = not asiaReady ? "building" : asiaSweepL ? "SWEEP LOW" : asiaSweepH ? "SWEEP HIGH" : "set"
+asiaCol = asiaSweepL ? color.lime : asiaSweepH ? color.red : color.gray
+qualityStr = signalLong ? "L " + str.tostring(qualityLong) : signalShort ? "S " + str.tostring(qualityShort) : "L " + str.tostring(qualityLong) + " / S " + str.tostring(qualityShort)
+qualityCol = signalLong ? color.lime : signalShort ? color.red : color.silver
+candleStr = not i_useCandleConfirm ? "OFF" : longCandleOk and not shortCandleOk ? "BULL CONFIRM" : shortCandleOk and not longCandleOk ? "BEAR CONFIRM" : (bullTurnPattern or bearTurnPattern) ? "MIXED TURN" : "NONE"
+candleCol = longCandleOk and not shortCandleOk ? color.lime : shortCandleOk and not longCandleOk ? color.red : (bullTurnPattern or bearTurnPattern) ? color.orange : color.gray
+riskStr = riskBlockedLong ? "LONG " + longRiskReason : riskBlockedShort ? "SHORT " + shortRiskReason : tradeLong ? "LONG OK" : tradeShort ? "SHORT OK" : "WAIT"
+riskCol = riskBlockedLong or riskBlockedShort ? color.orange : tradeLong ? color.lime : tradeShort ? color.red : color.gray
+dtzState = dtzNewBull ? "NEW BULL" : dtzNewBear ? "NEW BEAR" : dtzInvalidBull ? "BULL INVALID" : dtzInvalidBear ? "BEAR INVALID" : "NONE"
+dtzCol = dtzNewBull ? color.lime : dtzNewBear ? color.red : (dtzInvalidBull or dtzInvalidBear) ? color.orange : color.gray
+macroDir = structDir == "RANGE" ? (biasLong ? "BULL (bias-led)" : biasShort ? "BEAR (bias-led)" : "RANGE") : structDir
+macroCol = macroDir == "BULL" or str.contains(macroDir, "BULL") ? color.lime : macroDir == "BEAR" or str.contains(macroDir, "BEAR") ? color.red : color.orange
+microReversalRisk = (macroBull and (signalShort or tradeShort or justSweptHigh or asiaSweepH)) or
+     (macroBear and (signalLong or tradeLong or justSweptLow or asiaSweepL))
+microBullCont = macroBull and flowDir == "BULL" and flowFresh and close >= emaFast and not microReversalRisk
+microBearCont = macroBear and flowDir == "BEAR" and flowFresh and close <= emaFast and not microReversalRisk
+microBullPullback = macroBull and not microBullCont and not microReversalRisk and (close < emaFast or (poiActive and poiDir == "LONG"))
+microBearPullback = macroBear and not microBearCont and not microReversalRisk and (close > emaFast or (poiActive and poiDir == "SHORT"))
+microStr = microReversalRisk ? "REVERSAL RISK" :
+     microBullCont ? "BULL CONTINUATION" :
+     microBearCont ? "BEAR CONTINUATION" :
+     microBullPullback ? "BULL PULLBACK" :
+     microBearPullback ? "BEAR PULLBACK" :
+     "RANGE"
+microCol = microReversalRisk ? color.orange :
+     microBullCont ? color.lime :
+     microBearCont ? color.red :
+     microBullPullback ? color.new(color.lime, 20) :
+     microBearPullback ? color.new(color.red, 20) :
+     color.gray
+tradeSide = macroDir == "BULL" or str.contains(macroDir, "BULL") ? "LONG ONLY" : macroDir == "BEAR" or str.contains(macroDir, "BEAR") ? "SHORT ONLY" : "WAIT / BOTH LIGHT"
+tradeSideCol = tradeSide == "LONG ONLY" ? color.lime : tradeSide == "SHORT ONLY" ? color.red : color.orange
+whereStr = poiActive ? ("POI " + poiDir + " " + str.tostring(poiBot, format.mintick) + "→" + str.tostring(poiTop, format.mintick)) :
+     tradeSide == "LONG ONLY" ? ("BUY NEAR SSL " + sslStr) :
+     tradeSide == "SHORT ONLY" ? ("SELL NEAR BSL " + bslStr) :
+     ("BSL " + bslStr + " / SSL " + sslStr)
+whereCol = poiActive ? poiCol : tradeSideCol
+whenStr = oppLongReady ? "ENTER LONG NOW" :
+     oppShortReady ? "ENTER SHORT NOW" :
+     (tradeLong and candleReadyRequired and not longCandleOk) ? "LONG READY BLOCKED: NEED CANDLE" :
+     (tradeShort and candleReadyRequired and not shortCandleOk) ? "SHORT READY BLOCKED: NEED CANDLE" :
+     oppLongWatch ? "WATCH LONG: WAIT READY" :
+     oppShortWatch ? "WATCH SHORT: WAIT READY" :
+     oppLongPrep ? "PREP LONG: WAIT WATCH/READY" :
+     oppShortPrep ? "PREP SHORT: WAIT WATCH/READY" :
+     riskBlockedLong ? ("LONG BLOCKED: " + longRiskReason) :
+     riskBlockedShort ? ("SHORT BLOCKED: " + shortRiskReason) :
+     signalLong ? "LONG SIGNAL, WAIT CLOSE" :
+     signalShort ? "SHORT SIGNAL, WAIT CLOSE" :
+     tradeSide == "LONG ONLY" ? "WAIT: SWEEP LOW -> MSS RECLAIM" :
+     tradeSide == "SHORT ONLY" ? "WAIT: SWEEP HIGH -> MSS RECLAIM" :
+     "WAIT: CLEAR MSS + FLOW"
+whenCol = oppLongReady ? color.lime : oppShortReady ? color.red : (riskBlockedLong or riskBlockedShort) ? color.orange : color.silver
+
+f_row(table t, int r, string k, string v, color vc) =>
+    table.cell(t, 0, r, k, text_color=color.silver, text_size=size.tiny, bgcolor=color.new(color.black, 30), text_halign=text.align_left)
+    table.cell(t, 1, r, v, text_color=vc, text_size=size.tiny, bgcolor=color.new(color.black, 60), text_halign=text.align_left)
+
+var table dash = na
+var string dashPosLast = na
+var string dashStyleLast = na
+if i_showDash
+    desiredRows = i_dashStyle == "Simple Trader" ? 13 : 20
+    needsRebuild = na(dash) or dashPosLast != i_dashPos or dashStyleLast != i_dashStyle
+    if needsRebuild
+        if not na(dash)
+            table.delete(dash)
+        dash := table.new(f_dp(i_dashPos), 2, desiredRows, border_width=1, frame_width=1, frame_color=color.gray)
+        dashPosLast := i_dashPos
+        dashStyleLast := i_dashStyle
+    table.clear(dash, 0, 0, 1, desiredRows - 1)
+    if i_dashStyle == "Simple Trader"
+        table.cell(dash, 0, 0, "XAU-MSS-LIQ v7", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 0))
+        table.cell(dash, 1, 0, profileStr + " | " + sessStr, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 0))
+        f_row(dash, 1, "MACRO", macroDir, macroCol)
+        f_row(dash, 2, "REGIME", regimeStr, regimeCol)
+        f_row(dash, 3, "MICRO", microStr, microCol)
+        f_row(dash, 4, "TRADE SIDE", tradeSide, tradeSideCol)
+        f_row(dash, 5, "WHERE", whereStr, whereCol)
+        f_row(dash, 6, "WHEN", whenStr, whenCol)
+        f_row(dash, 7, "FLOW", flowDir + (flowDir != "RANGE" and not flowFresh ? " (old)" : ""), flowCol)
+        f_row(dash, 8, "DELTA", cvdStr, cvdCol)
+        f_row(dash, 9, "RISK", riskStr, riskCol)
+        f_row(dash, 10, "QUALITY", qualityStr, qualityCol)
+        f_row(dash, 11, "CANDLE", candleStr, candleCol)
+        f_row(dash, 12, "PATH B", pbStateStr, pbStateCol)
+    else
+        table.cell(dash, 0, 0, "XAU-MSS-LIQ", text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 0))
+        table.cell(dash, 1, 0, biasBadge, text_color=color.white, text_size=size.tiny, bgcolor=color.new(color.blue, 0))
+        f_row(dash, 1, "BIAS",     biasStr,   biasCol)
+        f_row(dash, 2, "SESSION",  sessStr, sessCol)
+        f_row(dash, 3, "STRUCT",   structDir, structCol)
+        f_row(dash, 4, "FLOW",     flowDir + (flowDir != "RANGE" and not flowFresh ? " (old)" : ""), flowCol)
+        f_row(dash, 5, "DELTA",    cvdStr, cvdCol)
+        f_row(dash, 6, "REGIME",   regimeStr, regimeCol)
+        f_row(dash, 7, "ASIA",     asiaStr, asiaCol)
+        f_row(dash, 8, "QUALITY",  qualityStr, qualityCol)
+        f_row(dash, 9, "RISK",     riskStr, riskCol)
+        f_row(dash, 10, "T BOX",   dtzState, dtzCol)
+        f_row(dash, 11, "ST",      stStateStr, stStateCol)
+        f_row(dash, 12, "AROON",   aroonStateStr, aroonStateCol)
+        f_row(dash, 13, "CONF",    confStr, confCol)
+        f_row(dash, 14, "BSL ▲",   bslStr,    color.new(color.red, 0))
+        f_row(dash, 15, "SSL ▼",   sslStr,    color.new(color.teal, 0))
+        f_row(dash, 16, "POI",     poiStr, poiCol)
+        f_row(dash, 17, "PROFILE", profileStr, profileCol)
+        f_row(dash, 18, "CANDLE",  candleStr, candleCol)
+else if not i_showDash and not na(dash)
+    table.delete(dash)
+    dash := na
+    dashPosLast := na
+    dashStyleLast := na
+
+// ─── ALERTS ──────────────────────────────────────────────────────────────────
+alertcondition(signalLong, "MSS BULL", "XAU-MSS-LIQ: bullish MSS confluence confirmed.")
+alertcondition(signalShort, "MSS BEAR", "XAU-MSS-LIQ: bearish MSS confluence confirmed.")
+alertcondition(mssBull and not mssBullFiltered, "MSS BULL BLOCKED", "XAU-MSS-LIQ: bullish MSS occurred but confluence filters blocked it.")
+alertcondition(mssBear and not mssBearFiltered, "MSS BEAR BLOCKED", "XAU-MSS-LIQ: bearish MSS occurred but confluence filters blocked it.")
+alertcondition((mssBullFiltered and not qualityLongOk) or (mssBearFiltered and not qualityShortOk), "MSS QUALITY BLOCKED", "XAU-MSS-LIQ: MSS formed but adaptive quality threshold blocked it.")
+alertcondition(newPoiTouchLong, "POI LONG TOUCH", "XAU-MSS-LIQ: price revisited LONG POI zone.")
+alertcondition(newPoiTouchShort, "POI SHORT TOUCH", "XAU-MSS-LIQ: price revisited SHORT POI zone.")
+alertcondition(justSweptLow,  "SSL SWEPT", "XAU-MSS-LIQ: sell-side liquidity swept below.")
+alertcondition(justSweptHigh, "BSL SWEPT", "XAU-MSS-LIQ: buy-side liquidity swept above.")
+alertcondition(asiaMssBull, "ASIA MSS BULL", "XAU-MSS-LIQ: Asia LOW swept and reclaimed — bullish fade.")
+alertcondition(asiaMssBear, "ASIA MSS BEAR", "XAU-MSS-LIQ: Asia HIGH swept and reclaimed — bearish fade.")
+alertcondition(flowDir == "BULL" and flowDir[1] != "BULL", "FLOW FLIP BULL", "XAU-MSS-LIQ: flow flipped bullish.")
+alertcondition(flowDir == "BEAR" and flowDir[1] != "BEAR", "FLOW FLIP BEAR", "XAU-MSS-LIQ: flow flipped bearish.")
+alertcondition(tradeLong,  "XAU ENTRY LONG",  "XAU-MSS-LIQ: LONG armed — sweep reclaimed, risk OK, plan drawn.")
+alertcondition(tradeShort, "XAU ENTRY SHORT", "XAU-MSS-LIQ: SHORT armed — sweep reclaimed, risk OK, plan drawn.")
+alertcondition(pbArmLong,  "XAU BREAK LONG",  "XAU-MSS-LIQ Path B: LONG range-break armed — coil broken up with displacement, risk OK.")
+alertcondition(pbArmShort, "XAU BREAK SHORT", "XAU-MSS-LIQ Path B: SHORT range-break armed — coil broken down with displacement, risk OK.")
+alertcondition(i_useCvd and cvdLongAligned and not cvdLongAligned[1], "DELTA TURN BULL", "XAU-MSS-LIQ: window delta turned net bullish (order-flow proxy).")
+alertcondition(i_useCvd and cvdShortAligned and not cvdShortAligned[1], "DELTA TURN BEAR", "XAU-MSS-LIQ: window delta turned net bearish (order-flow proxy).")
+alertcondition(riskBlockedLong or riskBlockedShort, "RISK BLOCKED", "XAU-MSS-LIQ: setup passed structure but failed risk gate.")
+alertcondition(dtzNewBull, "T BOX BULL", "XAU-MSS-LIQ: new bullish turning zone created.")
+alertcondition(dtzNewBear, "T BOX BEAR", "XAU-MSS-LIQ: new bearish turning zone created.")
+alertcondition(dtzInvalidBull or dtzInvalidBear, "T BOX INVALID", "XAU-MSS-LIQ: turning zone invalidated.")
+
+// ════════════════════════════════════════════════════════════════════════════
+// PIPELINE EMISSION — feeds the xau-bot webhook/parser (tagged XAU-U13 for zero
+// Node changes). Emits ENTRY / WATCH on the signal bar, then a single LIFE
+// alert when the tracked plan's SL or TP is hit. life_id is generated ONCE at
+// entry and replayed verbatim on close so Prisma's @unique lifeId matches.
+// Set a TradingView alert on this indicator with condition "Any alert() function
+// call" and a webhook URL pointing at your /webhook endpoint.
+// ════════════════════════════════════════════════════════════════════════════
+grpEmit = "Pipeline Emission"
+i_emitAlerts = input.bool(true, "Emit Pipeline Alerts (ENTRY/WATCH/LIFE)", group=grpEmit)
+i_emitWatch  = input.bool(true, "Emit WATCH (risk-blocked) signals", group=grpEmit,
+     tooltip="Sends risk-blocked setups as WATCH so the bot can learn whether the gate is throwing away winners.")
+
+// HTF dealing-range zone (DISCOUNT / PREMIUM / EQUILIBRIUM).
+// On kill-window days, prefer the Asia range as the intraday dealing range; else macro swing.
+f_htfZone() =>
+    bool useAsia = i_asiaDealingRng and asiaReady and asiaKillOk and not na(asiaH) and not na(asiaL) and asiaH > asiaL
+    float hi = useAsia ? asiaH : structLastH
+    float lo = useAsia ? asiaL : structLastL
+    string z = "EQUILIBRIUM"
+    if not na(hi) and not na(lo) and hi > lo
+        eqLo = lo + (hi - lo) * 0.4
+        eqHi = lo + (hi - lo) * 0.6
+        z := close <= eqLo ? "DISCOUNT" : close >= eqHi ? "PREMIUM" : "EQUILIBRIUM"
+    z
+htfZoneStr = f_htfZone()
+
+vwapStr = vwapAbove ? "ABOVE" : vwapBelow ? "BELOW" : "AT"
+
+// Build the CTX block matching parseCtxBlock() key→value contract exactly.
+f_ctx(int qScore, float rPts, float tPts) =>
+    "CTX: Score=" + str.tostring(qScore) + "/8" +
+     "|Regime=" + regimeStr +
+     "|HTF=" + htfZoneStr +
+     "|Sess=" + sessStr +
+     "|Bias=" + biasStr +
+     "|Flow=" + flowDir +
+     "|Struct=" + structDir +
+     "|VWAP=" + vwapStr +
+     "|Loc=" + (poiActive ? poiDir : "NONE") +
+     "|Zone=" + (poiActive ? "FRESH" : "NONE") +
+     "|State=" + regimeStr +
+     "|Candle=" + candleStr +
+     "|Momentum=" + (aroonOsc > effAroonThres ? "STRONG BULL" : aroonOsc < -effAroonThres ? "STRONG BEAR" : "NEUTRAL") +
+     "|Delta=" + cvdStr +
+     "|RiskPts=" + str.tostring(rPts, "#.###") +
+     "|TpPts=" + str.tostring(tPts, "#.###")
+
+f_asia() =>
+    asiaReady and not na(asiaH) and not na(asiaL) ? "\nASIA: H=" + str.tostring(asiaH, "#.###") + " L=" + str.tostring(asiaL, "#.###") : ""
+
+// ── LIFECYCLE PLAN TRACKER ───────────────────────────────────────────────────
+// Tracks ONE open plan at a time. New ENTRY supersedes any open plan.
+var string lifeId      = na
+var string lifeSide    = na      // "LONG" | "SHORT"
+var float  lifeSl      = na
+var float  lifeTp      = na
+var bool   lifeOpen    = false
+var int    lifeOpenBar = na
+
+emitEntryLong  = i_emitAlerts and tradeLong
+emitEntryShort = i_emitAlerts and tradeShort
+emitWatchLong  = i_emitAlerts and i_emitWatch and riskBlockedLong
+emitWatchShort = i_emitAlerts and i_emitWatch and riskBlockedShort
+
+// ── ENTRY emission (only confirmed, risk-passed trades carry a life_id) ───────
+if emitEntryLong
+    newLifeId = syminfo.ticker + "-" + timeframe.period + "-" + str.tostring(time)
+    rPts = planEntry - planSl
+    tPts = planTp - planEntry
+    msg = "XAU-U13 ▲ LONG (A INITIATION)\n" +
+         "Entry " + str.tostring(planEntry, "#.###") + "  SL " + str.tostring(planSl, "#.###") +
+         "  TP " + str.tostring(planTp, "#.###") + "  RR " + str.tostring(planRr, "#.#") + "R\n" +
+         f_ctx(qualityLong, rPts, tPts) + f_asia() +
+         "\nlife_id=" + newLifeId
+    alert(msg, alert.freq_once_per_bar_close)
+    lifeId := newLifeId
+    lifeSide := "LONG"
+    lifeSl := planSl
+    lifeTp := planTp
+    lifeOpen := true
+    lifeOpenBar := bar_index
+
+if emitEntryShort
+    newLifeId = syminfo.ticker + "-" + timeframe.period + "-" + str.tostring(time)
+    rPts = planSl - planEntry
+    tPts = planEntry - planTp
+    msg = "XAU-U13 ▼ SHORT (A INITIATION)\n" +
+         "Entry " + str.tostring(planEntry, "#.###") + "  SL " + str.tostring(planSl, "#.###") +
+         "  TP " + str.tostring(planTp, "#.###") + "  RR " + str.tostring(planRr, "#.#") + "R\n" +
+         f_ctx(qualityShort, rPts, tPts) + f_asia() +
+         "\nlife_id=" + newLifeId
+    alert(msg, alert.freq_once_per_bar_close)
+    lifeId := newLifeId
+    lifeSide := "SHORT"
+    lifeSl := planSl
+    lifeTp := planTp
+    lifeOpen := true
+    lifeOpenBar := bar_index
+
+// ── WATCH emission (passed structure+quality, failed risk gate; no life_id) ───
+// Header must match: WATCH (LONG|SHORT) (GRADE SETUP Q\d+% REASON)
+if emitWatchLong
+    qpct = math.round(math.min(qualityLong, 8) / 8.0 * 100)
+    rPts = na(longRisk) ? 0.0 : longRisk
+    tPts = na(longTpRaw) ? 0.0 : longTpRaw - close
+    msg = "XAU-U13 WATCH LONG (A CONT Q" + str.tostring(qpct) + "% " + longRiskReason + ")\n" +
+         "SL " + str.tostring(nz(longSlRaw, 0), "#.###") + "  TP " + str.tostring(nz(longTpRaw, 0), "#.###") +
+         "  RR " + str.tostring(nz(longRr, 0), "#.#") + "R\n" +
+         f_ctx(qualityLong, rPts, tPts) + f_asia()
+    alert(msg, alert.freq_once_per_bar_close)
+
+if emitWatchShort
+    qpct = math.round(math.min(qualityShort, 8) / 8.0 * 100)
+    rPts = na(shortRisk) ? 0.0 : shortRisk
+    tPts = na(shortTpRaw) ? 0.0 : close - shortTpRaw
+    msg = "XAU-U13 WATCH SHORT (A CONT Q" + str.tostring(qpct) + "% " + shortRiskReason + ")\n" +
+         "SL " + str.tostring(nz(shortSlRaw, 0), "#.###") + "  TP " + str.tostring(nz(shortTpRaw, 0), "#.###") +
+         "  RR " + str.tostring(nz(shortRr, 0), "#.#") + "R\n" +
+         f_ctx(qualityShort, rPts, tPts) + f_asia()
+    alert(msg, alert.freq_once_per_bar_close)
+
+// ── LIFE emission — fire once when the open plan hits SL or TP ────────────────
+// Uses intrabar high/low so a wick to the level counts as the hit.
+if lifeOpen and not na(lifeId) and bar_index > nz(lifeOpenBar, bar_index)
+    hitTp = lifeSide == "LONG" ? high >= lifeTp : low <= lifeTp
+    hitSl = lifeSide == "LONG" ? low <= lifeSl : high >= lifeSl
+    if hitTp and hitSl
+        // Both touched same bar — can't resolve order from OHLC alone.
+        alert("XAU-U13 LIFE,AMBIGUOUS,life_id=" + lifeId, alert.freq_once_per_bar)
+        lifeOpen := false
+        lifeOpenBar := na
+    else if hitTp
+        alert("XAU-U13 LIFE,TP HIT,life_id=" + lifeId, alert.freq_once_per_bar)
+        lifeOpen := false
+        lifeOpenBar := na
+    else if hitSl
+        alert("XAU-U13 LIFE,SL HIT,life_id=" + lifeId, alert.freq_once_per_bar)
+        lifeOpen := false
+        lifeOpenBar := na
