@@ -694,8 +694,8 @@ revSmall = revMarkerSizeT == 'Small'
 revNormal = revMarkerSizeT == 'Normal'
 revLarge = revMarkerSizeT == 'Large'
 
-plotshape(bullEarly, title = 'Bullish Early Reversal Warning', style = shape.triangleup, location = location.belowbar, color = color.new(revBullColor, 0), size = size.tiny, text = 'EARLY')
-plotshape(bearEarly, title = 'Bearish Early Reversal Warning', style = shape.triangledown, location = location.abovebar, color = color.new(revBearColor, 0), size = size.tiny, text = 'EARLY')
+plotshape(bullEarly, title = 'Bullish Early Reversal Warning', style = shape.triangleup, location = location.belowbar, color = color.new(revBullColor, 0), size = size.tiny, text = '')
+plotshape(bearEarly, title = 'Bearish Early Reversal Warning', style = shape.triangledown, location = location.abovebar, color = color.new(revBearColor, 0), size = size.tiny, text = '')
 
 plotshape(bullReversal and revTiny, title = 'Bullish Reversal Marker Tiny', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.tiny, text = 'REV')
 plotshape(bullReversal and revSmall, title = 'Bullish Reversal Marker Small', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.small, text = 'REV')
