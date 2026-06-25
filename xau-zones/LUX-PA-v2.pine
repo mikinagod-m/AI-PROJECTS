@@ -82,7 +82,7 @@ revEarlyExceptionMicroGate = input.bool(false, '  Exception Require Micro Al
 revEarlyExceptionOppPrev = input.bool(false, '  Exception Require Opposite Prior Trigger', group = revGroup, display = display)
 revEarlyExceptionCooldownBars = input.int(0, '  Exception Cooldown Bars', minval = 0, group = revGroup, display = display)
 revEarlyExceptionUseZoneContext = input.bool(true, '  Exception Use Zone Context', group = revGroup, display = display)
-revEarlyExceptionInZoneBodyAtr = input.float(0.30, '  Exception In-Zone Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlyExceptionInZoneBodyAtr = input.float(0.35, '  Exception In-Zone Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
 revEarlyExceptionOutZoneBodyAtr = input.float(0.77, '  Exception Out-of-Zone Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
 revEarlyExceptionAllowNearZone = input.bool(true, '  Exception Allow Near-Zone', group = revGroup, display = display)
 revEarlyExceptionNearZoneAtr = input.float(0.25, '  Exception Near-Zone ATR Buffer', minval = 0, step = 0.05, group = revGroup, display = display)
@@ -192,6 +192,12 @@ var int revBullFalse = 0
 var int revBearFalse = 0
 var int revBullTimeout = 0
 var int revBearTimeout = 0
+var int revCoreWin = 0
+var int revCoreFalse = 0
+var int revCoreTimeout = 0
+var int revExceptionWin = 0
+var int revExceptionFalse = 0
+var int revExceptionTimeout = 0
 
 //---------------------------------------------------------------------------------------------------------------------}
 // Functions / Methods
@@ -628,18 +634,30 @@ if revTrackShow
                     revBullWin += 1
                 else
                     revBearWin += 1
+                if mode == 0
+                    revCoreWin += 1
+                else
+                    revExceptionWin += 1
                 resolved := true
             else if hitSl or (hitTp and hitSl)
                 if dir == 1
                     revBullFalse += 1
                 else
                     revBearFalse += 1
+                if mode == 0
+                    revCoreFalse += 1
+                else
+                    revExceptionFalse += 1
                 resolved := true
             else if timedOut
                 if dir == 1
                     revBullTimeout += 1
                 else
                     revBearTimeout += 1
+                if mode == 0
+                    revCoreTimeout += 1
+                else
+                    revExceptionTimeout += 1
                 resolved := true
 
             if resolved
@@ -1152,23 +1170,29 @@ if revTrackShow
     bullPrecStr = ratioPctStr(revBullWin, revBullFalse)
     bearPrecStr = ratioPctStr(revBearWin, revBearFalse)
     allPrecStr = ratioPctStr(revBullWin + revBearWin, revBullFalse + revBearFalse)
+    corePrecStr = ratioPctStr(revCoreWin, revCoreFalse)
+    exceptionPrecStr = ratioPctStr(revExceptionWin, revExceptionFalse)
     totalCore = revBullCoreTotal + revBearCoreTotal
     totalException = revBullExceptionTotal + revBearExceptionTotal
     totalTracked = revBullTotal + revBearTotal
     totalTimeout = revBullTimeout + revBearTimeout
     pendingTracked = array.size(revPendDir)
+    coreTimeoutStr = str.tostring(revCoreTimeout)
+    exceptionTimeoutStr = str.tostring(revExceptionTimeout)
 
-    var table trackDash = table.new(dashPosition(revTrackPos), 2, 9, border_width = 1, frame_width = 1, frame_color = color.gray)
-    table.clear(trackDash, 0, 0, 1, 8)
+    var table trackDash = table.new(dashPosition(revTrackPos), 2, 11, border_width = 1, frame_width = 1, frame_color = color.gray)
+    table.clear(trackDash, 0, 0, 1, 10)
     table.cell(trackDash, 0, 0, 'EARLY Track', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
     table.cell(trackDash, 1, 0, str.tostring(totalTracked), text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
     dashRow(trackDash, 1, 'Precision', allPrecStr, color.new(color.white, 0))
     dashRow(trackDash, 2, 'Bull Prec', bullPrecStr, color.new(#089981, 0))
     dashRow(trackDash, 3, 'Bear Prec', bearPrecStr, color.new(#f23645, 0))
     dashRow(trackDash, 4, 'Core/Exc', str.tostring(totalCore) + ' / ' + str.tostring(totalException), color.silver)
-    dashRow(trackDash, 5, 'Wins', str.tostring(revBullWin + revBearWin), color.new(color.lime, 0))
-    dashRow(trackDash, 6, 'False', str.tostring(revBullFalse + revBearFalse), color.new(color.red, 0))
-    dashRow(trackDash, 7, 'Timeout', str.tostring(totalTimeout), color.orange)
-    dashRow(trackDash, 8, 'Pending', str.tostring(pendingTracked), color.new(color.aqua, 0))
+    dashRow(trackDash, 5, 'Core Prec', corePrecStr, color.new(color.yellow, 0))
+    dashRow(trackDash, 6, 'Exc Prec', exceptionPrecStr, color.new(color.orange, 0))
+    dashRow(trackDash, 7, 'Wins', str.tostring(revBullWin + revBearWin), color.new(color.lime, 0))
+    dashRow(trackDash, 8, 'False', str.tostring(revBullFalse + revBearFalse), color.new(color.red, 0))
+    dashRow(trackDash, 9, 'TO C/E', coreTimeoutStr + ' / ' + exceptionTimeoutStr, color.orange)
+    dashRow(trackDash, 10, 'Pending', str.tostring(pendingTracked), color.new(color.aqua, 0))
 
 //---------------------------------------------------------------------------------------------------------------------}
