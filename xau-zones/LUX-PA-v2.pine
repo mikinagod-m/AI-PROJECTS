@@ -67,8 +67,9 @@ sessEnable = input.bool(true, 'Session Playbook (6M Data)', group = sessGroup, d
 sessAsiaEnd = input.int(8, 'Asia End Hour (UTC)', minval = 1, maxval = 23, group = sessGroup, display = display)
 sessLondonEnd = input.int(13, 'London End Hour (UTC)', minval = 2, maxval = 23, group = sessGroup, display = display)
 sessNyEnd = input.int(22, 'NY End Hour (UTC)', minval = 3, maxval = 23, group = sessGroup, display = display)
-sessCoilMax = input.float(70.0, 'Asia Coil Max ($)', minval = 10, step = 5, group = sessGroup, display = display)
-sessCoilAtrMult = input.float(0.0, 'Coil ATR Mult (0 = $ only)', minval = 0, step = 0.1, group = sessGroup, display = display)
+sessCoilMax = input.float(70.0, 'Asia Coil Max ($)', minval = 10, step = 5, group = sessGroup, display = display, tooltip = '6M avg Asia range ~$79; tight coil < $70 → best playbook edge')
+sessCoilAtrMult = input.float(6.0, 'Coil ATR Mult (0 = $ only)', minval = 0, step = 0.1, group = sessGroup, display = display, tooltip = 'Dual coil: tight if range ≤ $70 OR ≤ ATR×mult')
+sessCoilDual = input.bool(true, 'Dual Coil ($ OR ATR)', group = sessGroup, display = display)
 sessShowBox = input.bool(true, 'Show Asia Box (London/NY)', group = sessGroup, display = display)
 sessShowAsiaSwings = input.bool(true, 'Mark Asia H/L at London Open', group = sessGroup, display = display)
 sessFilterEarlyT = input.string('Hide Counter-Playbook', 'Early Signal Session Filter', options = ['Allow All', 'Hide Counter-Playbook', 'Playbook Only'], group = sessGroup, display = display)
@@ -356,11 +357,6 @@ method renderStructures(ICTMS this, isBullish, marketStructure, color, style, la
             if labelEnabled
                 msMidX = int(math.round((this.lastIndex + bar.index) / 2))
                 msLabelText = marketStructure.type == (isBullish ? -1 : 1) ? 'MSS' : 'BOS'
-                if sessExpansionWindow
-                    if isBullish and sessPlaybookBull
-                        msLabelText += ' ·PB'
-                    if not isBullish and sessPlaybookBear
-                        msLabelText += ' ·PB'
                 msLabelTextColor = isBullish ? color.new(msBullColor, 0) : color.new(msBearColor, 0)
                 // Keep MSS/BOS text clearly away from structure lines even when zoomed out.
                 msLabelYOffset = math.max(ta.atr(14) * 0.35, syminfo.mintick * 120)
@@ -446,8 +442,9 @@ if sessEnable
 
 sessAtrEarly = ta.atr(14)
 sessAsiaRange = sessEnable and not na(sessAsiaHigh) and not na(sessAsiaLow) ? sessAsiaHigh - sessAsiaLow : na
-sessCoilLimit = sessCoilAtrMult > 0 ? sessAtrEarly * sessCoilAtrMult : sessCoilMax
-sessCoilActive = sessEnable and not na(sessAsiaRange) and sessAsiaRange > 0 and sessAsiaRange <= sessCoilLimit
+sessCoilTightUsd = not na(sessAsiaRange) and sessAsiaRange <= sessCoilMax
+sessCoilTightAtr = sessCoilAtrMult > 0 and not na(sessAsiaRange) and sessAsiaRange <= sessAtrEarly * sessCoilAtrMult
+sessCoilActive = sessEnable and not na(sessAsiaRange) and sessAsiaRange > 0 and (sessCoilDual ? (sessCoilTightUsd or sessCoilTightAtr) : sessCoilTightUsd)
 sessPlaybookBull = sessCoilActive and sessBreakSide == 1
 sessPlaybookBear = sessCoilActive and sessBreakSide == -1
 sessPlaybookReady = sessCoilActive and sessBreakSide != 0
@@ -1285,8 +1282,8 @@ alertcondition(bullEarly, title = 'Bullish Early Reversal Warning', message = 'L
 alertcondition(bearEarly, title = 'Bearish Early Reversal Warning', message = 'LUX-PA-v2: Early bearish reversal warning')
 alertcondition(bullReversal, title = 'Bullish Confirmed Reversal', message = 'LUX-PA-v2: Confirmed bullish long-term reversal')
 alertcondition(bearReversal, title = 'Bearish Confirmed Reversal', message = 'LUX-PA-v2: Confirmed bearish long-term reversal')
-alertcondition(sessPlaybookBear and sessBreakSide == -1 and not sessBreakSide[1], title = 'Bear Playbook Active', message = 'LUX-PA-v2: Tight Asia coil + London break LOW — bear playbook')
-alertcondition(sessPlaybookBull and sessBreakSide == 1 and not sessBreakSide[1], title = 'Bull Playbook Active', message = 'LUX-PA-v2: Tight Asia coil + London break HIGH — bull playbook')
+alertcondition(sessPlaybookBear and sessBreakSide == -1 and sessBreakSide[1] != -1, title = 'Bear Playbook Active', message = 'LUX-PA-v2: Tight Asia coil + London break LOW — bear playbook')
+alertcondition(sessPlaybookBull and sessBreakSide == 1 and sessBreakSide[1] != 1, title = 'Bull Playbook Active', message = 'LUX-PA-v2: Tight Asia coil + London break HIGH — bull playbook')
 
 // Persist previous structure states for next bar comparisons.
 stTypePrev := stMS.type
@@ -1552,22 +1549,24 @@ else
 
 sessPhaseStr = not sessEnable ? 'Off' : inAsiaSess ? 'Asia' : inLondonSess ? 'London' : inNySess ? 'NY' : 'Late'
 sessPhaseCol = inAsiaSess ? color.new(color.blue, 0) : inLondonSess ? color.new(color.orange, 0) : inNySess ? color.new(color.purple, 0) : color.silver
-sessCoilStr = not sessEnable or na(sessAsiaRange) ? 'N/A' : sessCoilActive ? 'Tight $' + str.tostring(sessAsiaRange, '#') : 'Wide $' + str.tostring(sessAsiaRange, '#')
+sessCoilTag = sessCoilTightUsd and sessCoilTightAtr ? ' · $+ATR' : sessCoilTightAtr and not sessCoilTightUsd ? ' · ATR' : ''
+sessCoilStr = not sessEnable or na(sessAsiaRange) ? 'N/A' : sessCoilActive ? 'Tight $' + str.tostring(sessAsiaRange, '#') + sessCoilTag : 'Wide $' + str.tostring(sessAsiaRange, '#')
 sessCoilCol = sessCoilActive ? color.new(color.lime, 0) : color.orange
 sessPlayStr = not sessEnable ? 'Off' : sessPlaybookBear ? 'BEAR · Break Low' : sessPlaybookBull ? 'BULL · Break High' : sessCoilActive and inLondonSess ? 'COIL · Watch' : sessCoilActive ? 'COIL · Wait' : 'No Coil'
 sessPlayCol = sessPlaybookBear ? color.new(#f23645, 0) : sessPlaybookBull ? color.new(#089981, 0) : sessCoilActive ? color.new(color.yellow, 0) : color.silver
 
 if dashShow
-    var table dash = table.new(dashPosition(dashPos), 2, 7, border_width = 1, frame_width = 1, frame_color = color.gray)
-    table.clear(dash, 0, 0, 1, 6)
+    var table dash = table.new(dashPosition(dashPos), 2, 8, border_width = 1, frame_width = 1, frame_color = color.gray)
+    table.clear(dash, 0, 0, 1, 7)
     table.cell(dash, 0, 0, 'Lux-PA', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.blue, 0))
-    table.cell(dash, 1, 0, 'Sniper 6-Row', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.blue, 0))
+    table.cell(dash, 1, 0, 'Sniper 7-Row', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.blue, 0))
     dashRow(dash, 1, 'MACRO', macroStr, macroCol)
     dashRow(dash, 2, 'MICRO MSS', microStr, microCol)
     dashRow(dash, 3, 'ZONE', zoneStr, zoneCol)
     dashRow(dash, 4, 'TARGET', targetStr, targetCol)
     dashRow(dash, 5, 'SESSION', sessPhaseStr, sessPhaseCol)
-    dashRow(dash, 6, 'PLAYBOOK', sessPlayStr, sessPlayCol)
+    dashRow(dash, 6, 'COIL', sessCoilStr, sessCoilCol)
+    dashRow(dash, 7, 'PLAYBOOK', sessPlayStr, sessPlayCol)
 
 bullPrecStr = ratioPctStr(revBullWin, revBullFalse)
 bearPrecStr = ratioPctStr(revBearWin, revBearFalse)
