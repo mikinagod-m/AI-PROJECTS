@@ -56,10 +56,26 @@ swBullColor = input.color(#089981, '  Label Colors, Bullish', group = swGrou
 swBearColor = input.color(#f23645, 'Bearish', group = swGroup, inline = 'MS')
 
 dashGroup = 'Dashboard'
-dashShow = input.bool(true, 'Show Dashboard', group = dashGroup)
-dashPos = input.string('Top Right', '  Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = dashGroup, display = display)
+dashShow = input.bool(true, 'Show Lux-PA Panel', group = dashGroup, display = display)
+dashPos = input.string('Top Right', 'Lux-PA Panel Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = dashGroup, display = display)
+dashTrackPos = input.string('Bottom Left', 'EARLY / NEXT MOVE Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = dashGroup, display = display)
 dashTargetConfluenceT = input.string('Strict (Macro+Micro)', '  Target Direction Filter', options = ['Loose', 'Strict (Macro+Micro)'], group = dashGroup, display = display)
 dashTargetConfluence = dashTargetConfluenceT == 'Strict (Macro+Micro)'
+
+sessGroup = 'Session Playbook'
+sessEnable = input.bool(true, 'Session Playbook (6M Data)', group = sessGroup, display = display)
+sessAsiaEnd = input.int(8, 'Asia End Hour (UTC)', minval = 1, maxval = 23, group = sessGroup, display = display)
+sessLondonEnd = input.int(13, 'London End Hour (UTC)', minval = 2, maxval = 23, group = sessGroup, display = display)
+sessNyEnd = input.int(22, 'NY End Hour (UTC)', minval = 3, maxval = 23, group = sessGroup, display = display)
+sessCoilMax = input.float(70.0, 'Asia Coil Max ($)', minval = 10, step = 5, group = sessGroup, display = display)
+sessCoilAtrMult = input.float(0.0, 'Coil ATR Mult (0 = $ only)', minval = 0, step = 0.1, group = sessGroup, display = display)
+sessShowBox = input.bool(true, 'Show Asia Box (London/NY)', group = sessGroup, display = display)
+sessShowAsiaSwings = input.bool(true, 'Mark Asia H/L at London Open', group = sessGroup, display = display)
+sessFilterEarlyT = input.string('Hide Counter-Playbook', 'Early Signal Session Filter', options = ['Allow All', 'Hide Counter-Playbook', 'Playbook Only'], group = sessGroup, display = display)
+sessMsGate = input.bool(true, 'Block Core MSS vs Playbook', group = sessGroup, display = display)
+sessConfBoost = input.bool(true, 'Boost CONF on Playbook Align', group = sessGroup, display = display)
+sessBearConfAdd = input.float(8.0, 'Bear Playbook CONF +', minval = 0, maxval = 20, step = 1, group = sessGroup, display = display)
+sessBullConfAdd = input.float(5.0, 'Bull Playbook CONF +', minval = 0, maxval = 20, step = 1, group = sessGroup, display = display)
 
 revGroup = 'Reversal Markers'
 revShow = input.bool(true, 'Long-Term Reversal Markers', group = revGroup)
@@ -67,29 +83,43 @@ revSource = input.string('Long Term', '  Confirmed Source', options = ['Micr
 revMarkerSizeT = input.string('Normal', '  Marker Size', options = ['Tiny', 'Small', 'Normal', 'Large'], group = revGroup, display = display)
 revEarlyShow = input.bool(true, '  Early Reversal Warnings', group = revGroup)
 revEarlyTrendSource = input.string('Macro', '  Early Trend Source', options = ['Micro', 'Short Term', 'Intermediate Term', 'Long Term', 'Macro'], group = revGroup, display = display)
-revEarlyTriggerSource = input.string('Intermediate Term', '  Early Trigger Source', options = ['Micro', 'Short Term', 'Intermediate Term', 'Long Term', 'Macro'], group = revGroup, display = display)
+revEarlyTriggerSource = input.string('Micro', '  Early Trigger Source', options = ['Micro', 'Short Term', 'Intermediate Term', 'Long Term', 'Macro'], group = revGroup, display = display)
 revEarlyIntentT = input.string('Trend Continuation', '  Early Signal Intent', options = ['Trend Continuation', 'Counter-Trend Reversal'], group = revGroup, display = display)
 revEarlyModeT = input.string('Strict', '  Early Condition Mode', options = ['Strict', 'Balanced', 'Aggressive'], group = revGroup, display = display)
-revEarlyMicroGate = input.bool(true, '  Require Micro Alignment', group = revGroup, display = display)
+revEarlyMicroGate = input.bool(false, '  Require Micro Alignment', group = revGroup, display = display)
 revEarlyRequireOppTrend = input.bool(true, '  Require Strict Trend Context', group = revGroup, display = display)
 revEarlyRequireOppPrev = input.bool(true, '  Require Opposite Prior Trigger', group = revGroup, display = display)
-revEarlyCooldownBars = input.int(5, '  Signal Cooldown Bars', minval = 0, group = revGroup, display = display)
-revEarlyMinBodyAtr = input.float(0.15, '  Min Candle Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlyFlipLookbackBars = input.int(2, '  Flip Lookback Bars', minval = 0, group = revGroup, display = display)
+revEarlyCooldownBars = input.int(8, '  Signal Cooldown Bars', minval = 0, group = revGroup, display = display)
+revEarlyMinBodyAtr = input.float(0.10, '  Min Candle Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlyAlignDirection = input.bool(true, '  Align Triangles to Direction', group = revGroup, display = display)
+revEarlyDirectionSource = input.string('Micro', '  Direction Source', options = ['Micro', 'Macro', 'Trigger', 'Macro + Micro'], group = revGroup, display = display)
+revEarlyCounterTrendT = input.string('Hide Counter-Trend', '  Counter-Trend Filter', options = ['Allow All', 'Sweep Only', 'Hide Counter-Trend'], group = revGroup, display = display)
+revEarlyClusterBars = input.int(10, '  Cluster Cooldown (same dir)', minval = 0, group = revGroup, display = display)
+revEarlyPingPongBars = input.int(8, '  Chop Block (opp dir)', minval = 0, group = revGroup, display = display)
 revEarlyExceptionShow = input.bool(true, '  Allow Exception Counter-Trend Signals', group = revGroup, display = display)
 revEarlyExceptionBodyAtr = input.float(0.35, '  Exception Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
 revEarlyExceptionCloseBreak = input.bool(false, '  Exception Require Close Break', group = revGroup, display = display)
 revEarlyExceptionMicroGate = input.bool(false, '  Exception Require Micro Alignment', group = revGroup, display = display)
 revEarlyExceptionOppPrev = input.bool(false, '  Exception Require Opposite Prior Trigger', group = revGroup, display = display)
-revEarlyExceptionCooldownBars = input.int(0, '  Exception Cooldown Bars', minval = 0, group = revGroup, display = display)
+revEarlyExceptionCooldownBars = input.int(8, '  Exception Cooldown Bars', minval = 0, group = revGroup, display = display)
 revEarlyExceptionUseZoneContext = input.bool(true, '  Exception Use Zone Context', group = revGroup, display = display)
 revEarlyExceptionInZoneBodyAtr = input.float(0.35, '  Exception In-Zone Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
 revEarlyExceptionOutZoneBodyAtr = input.float(0.77, '  Exception Out-of-Zone Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
 revEarlyExceptionAllowNearZone = input.bool(true, '  Exception Allow Near-Zone', group = revGroup, display = display)
 revEarlyExceptionNearZoneAtr = input.float(0.25, '  Exception Near-Zone ATR Buffer', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlySweepShow = input.bool(true, '  Allow Swing-Low SSL/BSL Reclaim', group = revGroup, display = display)
+revEarlySweepRequireZone = input.bool(true, '  Reclaim Require OB or SSL Zone', group = revGroup, display = display)
+revEarlySwingLookback = input.int(6, '  Swing Reclaim Window (bars)', minval = 1, maxval = 15, group = revGroup, display = display)
+revEarlySweepBufferAtr = input.float(0.10, '  SSL/BSL Proximity (ATR)', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlySwingMinBodyAtr = input.float(0.12, '  Swing Reclaim Min Body / ATR', minval = 0, step = 0.05, group = revGroup, display = display)
+revEarlySweepRequireDisp = input.bool(true, '  Reclaim Require Close Break / Pop', group = revGroup, display = display)
+revEarlySweepCooldownBars = input.int(12, '  Swing Reclaim Cooldown Bars', minval = 0, group = revGroup, display = display)
 revTrackShow = input.bool(true, '  Track Early Quality', group = revGroup, display = display)
 revTrackLookaheadBars = input.int(20, '  Track Lookahead Bars', minval = 1, group = revGroup, display = display)
 revTrackAtrTarget = input.float(0.60, '  Track Target/Stop (ATR)', minval = 0.1, step = 0.05, group = revGroup, display = display)
-revTrackPos = input.string('Bottom Left', '  Track Panel Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = revGroup, display = display)
+nextMoveShow = input.bool(true, '  Show Next Move Panel', group = revGroup, display = display)
+nextMoveMinConf = input.int(52, '  Min Confidence Display', minval = 0, maxval = 100, group = revGroup, display = display)
 revBullColor = input.color(color.new(#089981, 0), '  Bullish', inline = 'REV', group = revGroup)
 revBearColor = input.color(color.new(#f23645, 0), 'Bearish', inline = 'REV', group = revGroup)
 
@@ -142,6 +172,7 @@ type liq
     bool  brL
     line  ln
     line  lne
+    int   anchorX = na
 
 type ob
     float top = na
@@ -199,6 +230,14 @@ var int revExceptionWin = 0
 var int revExceptionFalse = 0
 var int revExceptionTimeout = 0
 
+var float sessAsiaHigh = na
+var float sessAsiaLow = na
+var int sessBreakSide = 0
+var bool sessLondonHighBroken = false
+var bool sessLondonLowBroken = false
+var int sessAsiaBoxLeft = na
+var box sessAsiaBoxDraw = na
+
 //---------------------------------------------------------------------------------------------------------------------}
 // Functions / Methods
 //---------------------------------------------------------------------------------------------------------------------{
@@ -226,6 +265,25 @@ dashPosition(posInText) =>
 dashRow(table t, int r, string k, string v, color vc) =>
     table.cell(t, 0, r, k, text_color = color.silver, text_size = size.tiny, bgcolor = color.new(color.black, 30), text_halign = text.align_left)
     table.cell(t, 1, r, v, text_color = vc, text_size = size.tiny, bgcolor = color.new(color.black, 60), text_halign = text.align_left)
+
+dashRowAt(table t, int c0, int c1, int r, string k, string v, color vc) =>
+    table.cell(t, c0, r, k, text_color = color.silver, text_size = size.tiny, bgcolor = color.new(color.black, 30), text_halign = text.align_left)
+    table.cell(t, c1, r, v, text_color = vc, text_size = size.tiny, bgcolor = color.new(color.black, 60), text_halign = text.align_left)
+
+sessHourUtc() =>
+    hour(time, 'UTC')
+
+sessInAsia(int endHr) =>
+    h = sessHourUtc()
+    h >= 0 and h < endHr
+
+sessInLondon(int asiaEnd, int londonEnd) =>
+    h = sessHourUtc()
+    h >= asiaEnd and h < londonEnd
+
+sessInNy(int londonEnd, int nyEnd) =>
+    h = sessHourUtc()
+    h >= londonEnd and h < nyEnd
 
 ratioPctStr(int wins, int losses) =>
     total = wins + losses
@@ -298,6 +356,11 @@ method renderStructures(ICTMS this, isBullish, marketStructure, color, style, la
             if labelEnabled
                 msMidX = int(math.round((this.lastIndex + bar.index) / 2))
                 msLabelText = marketStructure.type == (isBullish ? -1 : 1) ? 'MSS' : 'BOS'
+                if sessExpansionWindow
+                    if isBullish and sessPlaybookBull
+                        msLabelText += ' ·PB'
+                    if not isBullish and sessPlaybookBear
+                        msLabelText += ' ·PB'
                 msLabelTextColor = isBullish ? color.new(msBullColor, 0) : color.new(msBearColor, 0)
                 // Keep MSS/BOS text clearly away from structure lines even when zoomed out.
                 msLabelYOffset = math.max(ta.atr(14) * 0.35, syminfo.mintick * 120)
@@ -346,6 +409,55 @@ method renderBlocks(ob id, color, breakColor, bbText, bbTextColor)=>
         lnOBB.push(line.new(id.loc, id.top, timenow, id.top, xloc.bar_time, extend.none, color))
         lnOBB.push(line.new(id.loc, id.btm, timenow, id.btm, xloc.bar_time, extend.none, color))
         lnOBB.push(line.new(id.loc, avg, timenow, avg, xloc.bar_time, extend.none, breakColor, style = line.style_dotted))
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Calculations - Session Playbook (6M: coil → London break → NY expansion)
+//---------------------------------------------------------------------------------------------------------------------{
+
+inAsiaSess = sessEnable and sessInAsia(sessAsiaEnd)
+inLondonSess = sessEnable and sessInLondon(sessAsiaEnd, sessLondonEnd)
+inNySess = sessEnable and sessInNy(sessLondonEnd, sessNyEnd)
+asiaSessOpen = inAsiaSess and not inAsiaSess[1]
+londonSessOpen = inLondonSess and not inLondonSess[1]
+
+if sessEnable
+    if asiaSessOpen
+        sessAsiaHigh := high
+        sessAsiaLow := low
+        sessBreakSide := 0
+        sessLondonHighBroken := false
+        sessLondonLowBroken := false
+        sessAsiaBoxLeft := bar_index
+        if not na(sessAsiaBoxDraw)
+            box.delete(sessAsiaBoxDraw)
+            sessAsiaBoxDraw := na
+    else if inAsiaSess
+        sessAsiaHigh := math.max(nz(sessAsiaHigh, high), high)
+        sessAsiaLow := math.min(nz(sessAsiaLow, low), low)
+    if inLondonSess or inNySess
+        if not na(sessAsiaHigh) and high > sessAsiaHigh
+            sessLondonHighBroken := true
+            if sessBreakSide == 0
+                sessBreakSide := 1
+        if not na(sessAsiaLow) and low < sessAsiaLow
+            sessLondonLowBroken := true
+            if sessBreakSide == 0
+                sessBreakSide := -1
+
+sessAtrEarly = ta.atr(14)
+sessAsiaRange = sessEnable and not na(sessAsiaHigh) and not na(sessAsiaLow) ? sessAsiaHigh - sessAsiaLow : na
+sessCoilLimit = sessCoilAtrMult > 0 ? sessAtrEarly * sessCoilAtrMult : sessCoilMax
+sessCoilActive = sessEnable and not na(sessAsiaRange) and sessAsiaRange > 0 and sessAsiaRange <= sessCoilLimit
+sessPlaybookBull = sessCoilActive and sessBreakSide == 1
+sessPlaybookBear = sessCoilActive and sessBreakSide == -1
+sessPlaybookReady = sessCoilActive and sessBreakSide != 0
+sessExpansionWindow = sessPlaybookReady and (inLondonSess or inNySess)
+sessNyExpansion = sessPlaybookReady and inNySess
+sessAsiaSsl = sessEnable and not inAsiaSess and not na(sessAsiaLow) ? sessAsiaLow : na
+sessAsiaBsl = sessEnable and not inAsiaSess and not na(sessAsiaHigh) ? sessAsiaHigh : na
+sessEdgeBuf = sessAtrEarly * revEarlySweepBufferAtr
+bullAsiaEdgeZone = sessEnable and sessAtrEarly > 0 and not na(sessAsiaLow) and (inLondonSess or inNySess) and low <= sessAsiaLow + sessEdgeBuf and close >= sessAsiaLow - sessEdgeBuf
+bearAsiaEdgeZone = sessEnable and sessAtrEarly > 0 and not na(sessAsiaHigh) and (inLondonSess or inNySess) and high >= sessAsiaHigh - sessEdgeBuf and close <= sessAsiaHigh + sessEdgeBuf
 
 //---------------------------------------------------------------------------------------------------------------------}
 // Calculations - Swings 
@@ -452,6 +564,23 @@ if cMCH and cMCH != cMCH[1]
         ltHigh.midLabel.set_textcolor(swBullColor)
 
 //---------------------------------------------------------------------------------------------------------------------}
+// Session visuals (Asia box + swing labels)
+//---------------------------------------------------------------------------------------------------------------------{
+
+if sessShowBox and sessEnable and (inLondonSess or inNySess) and not na(sessAsiaHigh) and not na(sessAsiaLow) and not na(sessAsiaBoxLeft)
+    coilCol = color.new(color.orange, 85)
+    if na(sessAsiaBoxDraw)
+        sessAsiaBoxDraw := box.new(sessAsiaBoxLeft, sessAsiaHigh, bar.index, sessAsiaLow, border_color = color.new(color.orange, 40), bgcolor = coilCol, border_width = 1)
+    else
+        box.set_right(sessAsiaBoxDraw, bar.index)
+        box.set_top(sessAsiaBoxDraw, sessAsiaHigh)
+        box.set_bottom(sessAsiaBoxDraw, sessAsiaLow)
+
+if sessShowAsiaSwings and londonSessOpen and not na(sessAsiaHigh) and not na(sessAsiaLow)
+    label.new(bar.index, sessAsiaHigh, 'Asia H', xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color(na), textcolor = color.new(#089981, 0), size = size.tiny)
+    label.new(bar.index, sessAsiaLow, 'Asia L', xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color(na), textcolor = color.new(#f23645, 0), size = size.tiny)
+
+//---------------------------------------------------------------------------------------------------------------------}
 // Calculations - Market Structures 
 //---------------------------------------------------------------------------------------------------------------------{
 
@@ -473,6 +602,24 @@ var int bullEarlyLastBar = na
 var int bearEarlyLastBar = na
 var int bullExceptionLastBar = na
 var int bearExceptionLastBar = na
+var int bullFlipBar = na
+var int bearFlipBar = na
+var int bullFlipSignaled = na
+var int bearFlipSignaled = na
+var int bullSweepLastBar = na
+var int bearSweepLastBar = na
+var int revEarlyLastBullPlotBar = na
+var int revEarlyLastBearPlotBar = na
+var int bullSwingBar = na
+var float bullSwingPrice = na
+var float bullSwingSsl = na
+var int bearSwingBar = na
+var float bearSwingPrice = na
+var float bearSwingBsl = na
+var bool bullSweepCoreHit = false
+var bool bullSweepExcHit = false
+var bool bearSweepCoreHit = false
+var bool bearSweepExcHit = false
 
 revTypePrev = switch revSource
     'Micro' => stTypePrev
@@ -506,6 +653,18 @@ revEarlyTriggerPrev = switch revEarlyTriggerSource
     => mcTypePrev
 
 revEarlyContinuation = revEarlyIntentT == 'Trend Continuation'
+bullFlipEvent = revEarlyTriggerType == 1 and revEarlyTriggerPrev == -1
+bearFlipEvent = revEarlyTriggerType == -1 and revEarlyTriggerPrev == 1
+if bullFlipEvent
+    bullFlipBar := bar.index
+    bullFlipSignaled := na
+if bearFlipEvent
+    bearFlipBar := bar.index
+    bearFlipSignaled := na
+bullFlipWindow = revEarlyTriggerType == 1 and not na(bullFlipBar) and bar.index - bullFlipBar <= revEarlyFlipLookbackBars
+bearFlipWindow = revEarlyTriggerType == -1 and not na(bearFlipBar) and bar.index - bearFlipBar <= revEarlyFlipLookbackBars
+bullFlipFreshOk = na(bullFlipSignaled) or bullFlipSignaled != bullFlipBar
+bearFlipFreshOk = na(bearFlipSignaled) or bearFlipSignaled != bearFlipBar
 bullTrendStrict = revEarlyContinuation ? revEarlyTrendType == 1 : revEarlyTrendType == -1
 bearTrendStrict = revEarlyContinuation ? revEarlyTrendType == -1 : revEarlyTrendType == 1
 bullTrendLoose = revEarlyContinuation ? revEarlyTrendType != -1 : revEarlyTrendType != 1
@@ -514,15 +673,15 @@ bullTrendBalancedOk = revEarlyRequireOppTrend ? bullTrendStrict : bullTrendLoose
 bearTrendBalancedOk = revEarlyRequireOppTrend ? bearTrendStrict : bearTrendLoose
 bullTrendAggressiveOk = revEarlyRequireOppTrend ? bullTrendStrict : true
 bearTrendAggressiveOk = revEarlyRequireOppTrend ? bearTrendStrict : true
-bullTriggerFlipOk = revEarlyRequireOppPrev ? revEarlyTriggerPrev == -1 : revEarlyTriggerPrev != 1
-bearTriggerFlipOk = revEarlyRequireOppPrev ? revEarlyTriggerPrev == 1 : revEarlyTriggerPrev != -1
+bullTriggerFlipOk = revEarlyRequireOppPrev ? bullFlipEvent or (revEarlyFlipLookbackBars > 0 and bullFlipWindow) : revEarlyTriggerPrev != 1
+bearTriggerFlipOk = revEarlyRequireOppPrev ? bearFlipEvent or (revEarlyFlipLookbackBars > 0 and bearFlipWindow) : revEarlyTriggerPrev != -1
 
-bullEarlyStrict = bullTrendStrict and revEarlyTriggerType == 1 and bullTriggerFlipOk
-bearEarlyStrict = bearTrendStrict and revEarlyTriggerType == -1 and bearTriggerFlipOk
-bullEarlyBalanced = bullTrendBalancedOk and revEarlyTriggerType == 1 and bullTriggerFlipOk
-bearEarlyBalanced = bearTrendBalancedOk and revEarlyTriggerType == -1 and bearTriggerFlipOk
-bullEarlyAggressive = bullTrendAggressiveOk and revEarlyTriggerType == 1 and bullTriggerFlipOk
-bearEarlyAggressive = bearTrendAggressiveOk and revEarlyTriggerType == -1 and bearTriggerFlipOk
+bullEarlyStrict = bullTrendStrict and revEarlyTriggerType == 1 and bullTriggerFlipOk and bullFlipFreshOk
+bearEarlyStrict = bearTrendStrict and revEarlyTriggerType == -1 and bearTriggerFlipOk and bearFlipFreshOk
+bullEarlyBalanced = bullTrendBalancedOk and revEarlyTriggerType == 1 and bullTriggerFlipOk and bullFlipFreshOk
+bearEarlyBalanced = bearTrendBalancedOk and revEarlyTriggerType == -1 and bearTriggerFlipOk and bearFlipFreshOk
+bullEarlyAggressive = bullTrendAggressiveOk and revEarlyTriggerType == 1 and bullTriggerFlipOk and bullFlipFreshOk
+bearEarlyAggressive = bearTrendAggressiveOk and revEarlyTriggerType == -1 and bearTriggerFlipOk and bearFlipFreshOk
 
 bullEarlyMode = switch revEarlyModeT
     'Strict' => bullEarlyStrict
@@ -543,6 +702,10 @@ bullEarlyCore = revEarlyShow and bullEarlyMode and revEarlyBodyOk
 bearEarlyCore = revEarlyShow and bearEarlyMode and revEarlyBodyOk
 bullEarlyCoreGated = bullEarlyCore and (not revEarlyMicroGate or stMS.type == 1)
 bearEarlyCoreGated = bearEarlyCore and (not revEarlyMicroGate or stMS.type == -1)
+sessBlockBullCore = sessEnable and sessMsGate and sessExpansionWindow and sessPlaybookBear
+sessBlockBearCore = sessEnable and sessMsGate and sessExpansionWindow and sessPlaybookBull
+bullEarlyCoreGated := bullEarlyCoreGated and not sessBlockBullCore
+bearEarlyCoreGated := bearEarlyCoreGated and not sessBlockBearCore
 
 // Exception layer: allow selective opposite-trend EARLY signals on strong impulse reversals.
 bullExceptionTrend = revEarlyContinuation and revEarlyTrendType == -1
@@ -572,8 +735,8 @@ if bearish_ob.size() > 0
 
 bullNearZone = revEarlyExceptionAllowNearZone and revEarlyAtr > 0 and revBullZoneDist <= revEarlyAtr * revEarlyExceptionNearZoneAtr
 bearNearZone = revEarlyExceptionAllowNearZone and revEarlyAtr > 0 and revBearZoneDist <= revEarlyAtr * revEarlyExceptionNearZoneAtr
-bullZoneContextOk = revInBullZone or bullNearZone
-bearZoneContextOk = revInBearZone or bearNearZone
+bullZoneContextOk = revInBullZone or bullNearZone or bullAsiaEdgeZone
+bearZoneContextOk = revInBearZone or bearNearZone or bearAsiaEdgeZone
 
 bullExceptionRequiredBodyAtr = revEarlyExceptionUseZoneContext ? (bullZoneContextOk ? revEarlyExceptionInZoneBodyAtr : revEarlyExceptionOutZoneBodyAtr) : revEarlyExceptionBodyAtr
 bearExceptionRequiredBodyAtr = revEarlyExceptionUseZoneContext ? (bearZoneContextOk ? revEarlyExceptionInZoneBodyAtr : revEarlyExceptionOutZoneBodyAtr) : revEarlyExceptionBodyAtr
@@ -594,147 +757,18 @@ bullEarlyCoreCooldownOk = revEarlyCooldownBars <= 0 or na(bullEarlyLastBar) or b
 bearEarlyCoreCooldownOk = revEarlyCooldownBars <= 0 or na(bearEarlyLastBar) or bar.index - bearEarlyLastBar > revEarlyCooldownBars
 bullExceptionCooldownOk = revEarlyExceptionCooldownBars <= 0 or na(bullExceptionLastBar) or bar.index - bullExceptionLastBar > revEarlyExceptionCooldownBars
 bearExceptionCooldownOk = revEarlyExceptionCooldownBars <= 0 or na(bearExceptionLastBar) or bar.index - bearExceptionLastBar > revEarlyExceptionCooldownBars
-bullEarlyCoreFinal = bullEarlyCoreGated and bullEarlyCoreCooldownOk
-bearEarlyCoreFinal = bearEarlyCoreGated and bearEarlyCoreCooldownOk
-bullExceptionFinal = bullException and bullExceptionCooldownOk
-bearExceptionFinal = bearException and bearExceptionCooldownOk
-bullEarly = bullEarlyCoreFinal or bullExceptionFinal
-bearEarly = bearEarlyCoreFinal or bearExceptionFinal
-
-if bullEarlyCoreFinal
-    bullEarlyLastBar := bar.index
-if bearEarlyCoreFinal
-    bearEarlyLastBar := bar.index
-if bullExceptionFinal
-    bullExceptionLastBar := bar.index
-if bearExceptionFinal
-    bearExceptionLastBar := bar.index
-
-if revTrackShow
-    i = 0
-    while i < array.size(revPendDir)
-        dir = array.get(revPendDir, i)
-        tp = array.get(revPendTp, i)
-        sl = array.get(revPendSl, i)
-        born = array.get(revPendBorn, i)
-        expiry = array.get(revPendExpiry, i)
-        mode = array.get(revPendMode, i)
-
-        // Start evaluating only from the bar after signal creation.
-        if bar.index <= born
-            i += 1
-        else
-            hitTp = dir == 1 ? high >= tp : low <= tp
-            hitSl = dir == 1 ? low <= sl : high >= sl
-            timedOut = bar.index >= expiry
-            resolved = false
-
-            if hitTp and not hitSl
-                if dir == 1
-                    revBullWin += 1
-                else
-                    revBearWin += 1
-                if mode == 0
-                    revCoreWin += 1
-                else
-                    revExceptionWin += 1
-                resolved := true
-            else if hitSl or (hitTp and hitSl)
-                if dir == 1
-                    revBullFalse += 1
-                else
-                    revBearFalse += 1
-                if mode == 0
-                    revCoreFalse += 1
-                else
-                    revExceptionFalse += 1
-                resolved := true
-            else if timedOut
-                if dir == 1
-                    revBullTimeout += 1
-                else
-                    revBearTimeout += 1
-                if mode == 0
-                    revCoreTimeout += 1
-                else
-                    revExceptionTimeout += 1
-                resolved := true
-
-            if resolved
-                array.remove(revPendDir, i)
-                array.remove(revPendEntry, i)
-                array.remove(revPendTp, i)
-                array.remove(revPendSl, i)
-                array.remove(revPendBorn, i)
-                array.remove(revPendExpiry, i)
-                array.remove(revPendMode, i)
-            else
-                i += 1
-
-    if bullEarly and revEarlyAtr > 0
-        mode = bullExceptionFinal ? 1 : 0
-        entry = close
-        target = entry + revEarlyAtr * revTrackAtrTarget
-        stop = entry - revEarlyAtr * revTrackAtrTarget
-        array.push(revPendDir, 1)
-        array.push(revPendEntry, entry)
-        array.push(revPendTp, target)
-        array.push(revPendSl, stop)
-        array.push(revPendBorn, bar.index)
-        array.push(revPendExpiry, bar.index + revTrackLookaheadBars)
-        array.push(revPendMode, mode)
-        revBullTotal += 1
-        if mode == 0
-            revBullCoreTotal += 1
-        else
-            revBullExceptionTotal += 1
-
-    if bearEarly and revEarlyAtr > 0
-        mode = bearExceptionFinal ? 1 : 0
-        entry = close
-        target = entry - revEarlyAtr * revTrackAtrTarget
-        stop = entry + revEarlyAtr * revTrackAtrTarget
-        array.push(revPendDir, -1)
-        array.push(revPendEntry, entry)
-        array.push(revPendTp, target)
-        array.push(revPendSl, stop)
-        array.push(revPendBorn, bar.index)
-        array.push(revPendExpiry, bar.index + revTrackLookaheadBars)
-        array.push(revPendMode, mode)
-        revBearTotal += 1
-        if mode == 0
-            revBearCoreTotal += 1
-        else
-            revBearExceptionTotal += 1
-
-revTiny = revMarkerSizeT == 'Tiny'
-revSmall = revMarkerSizeT == 'Small'
-revNormal = revMarkerSizeT == 'Normal'
-revLarge = revMarkerSizeT == 'Large'
-
-plotshape(bullEarly, title = 'Bullish Early Reversal Warning', style = shape.triangleup, location = location.belowbar, color = color.new(revBullColor, 0), size = size.tiny, text = '')
-plotshape(bearEarly, title = 'Bearish Early Reversal Warning', style = shape.triangledown, location = location.abovebar, color = color.new(revBearColor, 0), size = size.tiny, text = '')
-
-plotshape(bullReversal and revTiny, title = 'Bullish Reversal Marker Tiny', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.tiny, text = 'REV')
-plotshape(bullReversal and revSmall, title = 'Bullish Reversal Marker Small', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.small, text = 'REV')
-plotshape(bullReversal and revNormal, title = 'Bullish Reversal Marker Normal', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.normal, text = 'REV')
-plotshape(bullReversal and revLarge, title = 'Bullish Reversal Marker Large', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.large, text = 'REV')
-
-plotshape(bearReversal and revTiny, title = 'Bearish Reversal Marker Tiny', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.tiny, text = 'REV')
-plotshape(bearReversal and revSmall, title = 'Bearish Reversal Marker Small', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.small, text = 'REV')
-plotshape(bearReversal and revNormal, title = 'Bearish Reversal Marker Normal', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.normal, text = 'REV')
-plotshape(bearReversal and revLarge, title = 'Bearish Reversal Marker Large', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.large, text = 'REV')
-
-alertcondition(bullEarly, title = 'Bullish Early Reversal Warning', message = 'LUX-PA-v2: Early bullish reversal warning')
-alertcondition(bearEarly, title = 'Bearish Early Reversal Warning', message = 'LUX-PA-v2: Early bearish reversal warning')
-alertcondition(bullReversal, title = 'Bullish Confirmed Reversal', message = 'LUX-PA-v2: Confirmed bullish long-term reversal')
-alertcondition(bearReversal, title = 'Bearish Confirmed Reversal', message = 'LUX-PA-v2: Confirmed bearish long-term reversal')
-
-// Persist previous structure states for next bar comparisons.
-stTypePrev := stMS.type
-itTypePrev := itMS.type
-ltTypePrev := ltMS.type
-mcTypePrev := mcMS.type
+bullEarlyCoreBase = bullEarlyCoreGated and bullEarlyCoreCooldownOk
+bearEarlyCoreBase = bearEarlyCoreGated and bearEarlyCoreCooldownOk
+bullExceptionBase = bullException and bullExceptionCooldownOk
+bearExceptionBase = bearException and bearExceptionCooldownOk
+bullEarlyCoreFinal = bullEarlyCoreBase
+bearEarlyCoreFinal = bearEarlyCoreBase
+bullExceptionFinal = bullExceptionBase
+bearExceptionFinal = bearExceptionBase
+bullEarlyStruct = false
+bearEarlyStruct = false
+bullEarly = false
+bearEarly = false
 
 //---------------------------------------------------------------------------------------------------------------------}
 // Calculations - Buyside & Sellside Liquidity
@@ -750,8 +784,8 @@ var ZZ aZZ = ZZ.new(
  )
 
 
-var liq[] b_liq_B = array.new<liq> (1, liq.new(box(na), box(na), label(na), false, false, line(na), line(na)))
-var liq[] b_liq_S = array.new<liq> (1, liq.new(box(na), box(na), label(na), false, false, line(na), line(na)))
+var liq[] b_liq_B = array.new<liq> (1, liq.new(box(na), box(na), label(na), false, false, line(na), line(na), na))
+var liq[] b_liq_S = array.new<liq> (1, liq.new(box(na), box(na), label(na), false, false, line(na), line(na), na))
 
 var b_liq_V = array.new_box()
 
@@ -822,7 +856,8 @@ if swingHigh > 0 and swingHigh != swingHigh[1]
                    false, 
                    false,
                    line.new(st_B   , st_P, bar.index - 1, st_P, color = color.new(cLIQ_B, 0)),
-                   line.new(bar.index - 1, st_P, na     , st_P, color = color.new(cLIQ_B, 0), style = line.style_dotted))
+                   line.new(bar.index - 1, st_P, na     , st_P, color = color.new(cLIQ_B, 0), style = line.style_dotted),
+                   st_B)
                  )
 
             if b_liq_B.size() > visLiq
@@ -882,7 +917,8 @@ if swingLow > 0 and swingLow != swingLow[1]
                    false,
                    false,
                    line.new(st_B   , st_P, bar.index - 1, st_P, color = color.new(cLIQ_S, 0)),
-                   line.new(bar.index - 1, st_P, na     , st_P, color = color.new(cLIQ_S, 0), style = line.style_dotted))
+                   line.new(bar.index - 1, st_P, na     , st_P, color = color.new(cLIQ_S, 0), style = line.style_dotted),
+                   st_B)
                  )  
 
             if b_liq_S.size() > visLiq
@@ -893,12 +929,14 @@ if swingLow > 0 and swingLow != swingLow[1]
                 getLast.ln.delete()            
                 getLast.lne.delete()               
 
+liqHistMax = 490
+
 for i = 0 to b_liq_B.size() - 1
     x = b_liq_B.get(i)
-    
-    if not x.brL
+
+    if not x.brL and not na(x.anchorX) and bar_index - x.anchorX < liqHistMax
         x.lne.set_x2(bar.index)
-        liqMidX = int(math.round((x.ln.get_x1() + x.lne.get_x2()) / 2))
+        liqMidX = int(math.round((x.anchorX + bar.index) / 2))
         x.bxt.set_x(liqMidX)
 
         if bar.high > x.bx.get_top()
@@ -907,13 +945,354 @@ for i = 0 to b_liq_B.size() - 1
 for i = 0 to b_liq_S.size() - 1
     x = b_liq_S.get(i)
 
-    if not x.brL
+    if not x.brL and not na(x.anchorX) and bar_index - x.anchorX < liqHistMax
         x.lne.set_x2(bar.index)
-        liqMidX = int(math.round((x.ln.get_x1() + x.lne.get_x2()) / 2))
+        liqMidX = int(math.round((x.anchorX + bar.index) / 2))
         x.bxt.set_x(liqMidX)
 
         if bar.low < x.bx.get_bottom()
             x.brL := true
+
+// Swing-low SSL reclaim — same-bar hammer at swept liquidity + optional deferred pivot reclaim.
+bullSweepCoreHit := false
+bullSweepExcHit := false
+bearSweepCoreHit := false
+bearSweepExcHit := false
+
+sweepBuf = revEarlyAtr * revEarlySweepBufferAtr
+
+float sslTouch = na
+float bslTouch = na
+float sslReclaim = na
+float bslReclaim = na
+sslReach = revEarlyAtr * 0.08
+for i = 0 to b_liq_S.size() - 1
+    sslPx = b_liq_S.get(i).bx.get_bottom()
+    sslAtLow = not na(sslPx) and sslPx <= low + sweepBuf and low <= sslPx + sweepBuf
+    sslReclaimBar = not na(sslPx) and close > sslPx and low <= sslPx + sslReach and (low <= sslPx or close[1] <= sslPx)
+    if sslAtLow
+        sslTouch := na(sslTouch) ? sslPx : math.max(sslTouch, sslPx)
+    if sslReclaimBar
+        sslReclaim := na(sslReclaim) ? sslPx : math.max(sslReclaim, sslPx)
+for i = 0 to b_liq_B.size() - 1
+    bslPx = b_liq_B.get(i).bx.get_top()
+    bslAtHigh = not na(bslPx) and bslPx >= high - sweepBuf and bslPx <= high + sweepBuf
+    bslReclaimBar = not na(bslPx) and close < bslPx and high >= bslPx - sslReach and (high >= bslPx or close[1] >= bslPx)
+    if bslAtHigh
+        bslTouch := na(bslTouch) ? bslPx : math.min(bslTouch, bslPx)
+    if bslReclaimBar
+        bslReclaim := na(bslReclaim) ? bslPx : math.min(bslReclaim, bslPx)
+stLowPx = stLow.lastPrice > 0 ? stLow.lastPrice : na
+stHighPx = stHigh.lastPrice > 0 ? stHigh.lastPrice : na
+if na(sslTouch) and not na(stLowPx) and stLowPx <= low + sweepBuf and low <= stLowPx + sweepBuf
+    sslTouch := stLowPx
+if na(bslTouch) and not na(stHighPx) and stHighPx >= high - sweepBuf and stHighPx <= high + sweepBuf
+    bslTouch := stHighPx
+if na(sslTouch) and not na(sessAsiaSsl) and (inLondonSess or inNySess) and sessAsiaSsl <= low + sweepBuf and low <= sessAsiaSsl + sweepBuf
+    sslTouch := sessAsiaSsl
+if na(bslTouch) and not na(sessAsiaBsl) and (inLondonSess or inNySess) and sessAsiaBsl >= high - sweepBuf and sessAsiaBsl <= high + sweepBuf
+    bslTouch := sessAsiaBsl
+if na(sslReclaim) and not na(stLowPx) and close > stLowPx and low <= stLowPx + sslReach and (low <= stLowPx or close[1] <= stLowPx)
+    sslReclaim := stLowPx
+if na(bslReclaim) and not na(stHighPx) and close < stHighPx and high >= stHighPx - sslReach and (high >= stHighPx or close[1] >= stHighPx)
+    bslReclaim := stHighPx
+if na(sslReclaim) and not na(sessAsiaSsl) and close > sessAsiaSsl and low <= sessAsiaSsl + sslReach and (low <= sessAsiaSsl or close[1] <= sessAsiaSsl)
+    sslReclaim := sessAsiaSsl
+if na(bslReclaim) and not na(sessAsiaBsl) and close < sessAsiaBsl and high >= sessAsiaBsl - sslReach and (high >= sessAsiaBsl or close[1] >= sessAsiaBsl)
+    bslReclaim := sessAsiaBsl
+
+bullPivotLow = low[1] <= low[2] and low[1] <= low[0]
+bearPivotHigh = high[1] >= high[2] and high[1] >= high[0]
+if bullPivotLow
+    bullSwingBar := bar.index - 1
+    bullSwingPrice := low[1]
+    bullSwingSsl := sslTouch
+    if na(bullSwingSsl)
+        for i = 0 to b_liq_S.size() - 1
+            sslPx = b_liq_S.get(i).bx.get_bottom()
+            sslAtPivot = not na(sslPx) and sslPx <= low[1] + sweepBuf and low[1] <= sslPx + sweepBuf
+            if sslAtPivot
+                bullSwingSsl := na(bullSwingSsl) ? sslPx : math.max(bullSwingSsl, sslPx)
+        if na(bullSwingSsl) and not na(stLowPx) and stLowPx <= low[1] + sweepBuf and low[1] <= stLowPx + sweepBuf
+            bullSwingSsl := stLowPx
+        if na(bullSwingSsl) and not na(sessAsiaSsl) and sessAsiaSsl <= low[1] + sweepBuf and low[1] <= sessAsiaSsl + sweepBuf
+            bullSwingSsl := sessAsiaSsl
+if bearPivotHigh
+    bearSwingBar := bar.index - 1
+    bearSwingPrice := high[1]
+    bearSwingBsl := bslTouch
+    if na(bearSwingBsl)
+        for i = 0 to b_liq_B.size() - 1
+            bslPx = b_liq_B.get(i).bx.get_top()
+            bslAtPivot = not na(bslPx) and bslPx >= high[1] - sweepBuf and bslPx <= high[1] + sweepBuf
+            if bslAtPivot
+                bearSwingBsl := na(bearSwingBsl) ? bslPx : math.min(bearSwingBsl, bslPx)
+        if na(bearSwingBsl) and not na(stHighPx) and stHighPx >= high[1] - sweepBuf and stHighPx <= high[1] + sweepBuf
+            bearSwingBsl := stHighPx
+        if na(bearSwingBsl) and not na(sessAsiaBsl) and sessAsiaBsl >= high[1] - sweepBuf and sessAsiaBsl <= high[1] + sweepBuf
+            bearSwingBsl := sessAsiaBsl
+
+bullSwingAge = not na(bullSwingBar) ? bar.index - bullSwingBar : na
+bearSwingAge = not na(bearSwingBar) ? bar.index - bearSwingBar : na
+bullRecentSwing = not na(bullSwingAge) and bullSwingAge >= 1 and bullSwingAge <= revEarlySwingLookback
+bearRecentSwing = not na(bearSwingAge) and bearSwingAge >= 1 and bearSwingAge <= revEarlySwingLookback
+bullReclaimSsl = not na(bullSwingSsl) ? bullSwingSsl : sslTouch
+bearReclaimBsl = not na(bearSwingBsl) ? bearSwingBsl : bslTouch
+bullAtSslZone = (not na(sslTouch) and low <= sslTouch + sweepBuf) or not na(sslReclaim) or bullAsiaEdgeZone
+bearAtBslZone = (not na(bslTouch) and high >= bslTouch - sweepBuf) or not na(bslReclaim) or bearAsiaEdgeZone
+bullSweepZoneOk = not revEarlySweepRequireZone or bullZoneContextOk or bullNearZone or bullAtSslZone
+bearSweepZoneOk = not revEarlySweepRequireZone or bearZoneContextOk or bearNearZone or bearAtBslZone
+bullDumpBlock = revEarlyTrendType == -1 and stMS.type == -1 and not bullAtSslZone
+bearRipBlock = revEarlyTrendType == 1 and stMS.type == 1 and not bearAtBslZone
+if sessPlaybookBear and (inLondonSess or inNySess)
+    bullDumpBlock := bullDumpBlock or (not bullAtSslZone and not bullAsiaEdgeZone)
+if sessPlaybookBull and (inLondonSess or inNySess)
+    bearRipBlock := bearRipBlock or (not bearAtBslZone and not bearAsiaEdgeZone)
+bullSweepCooldownOk = revEarlySweepCooldownBars <= 0 or na(bullSweepLastBar) or bar.index - bullSweepLastBar > revEarlySweepCooldownBars
+bearSweepCooldownOk = revEarlySweepCooldownBars <= 0 or na(bearSweepLastBar) or bar.index - bearSweepLastBar > revEarlySweepCooldownBars
+
+bullWickDom = not na(sslReclaim) and (close - low) > math.max(math.abs(close - open), revEarlyAtr * 0.04)
+bearWickDom = not na(bslReclaim) and (high - close) > math.max(math.abs(close - open), revEarlyAtr * 0.04)
+bullPopLen = math.max(nz(bullSwingAge, 1), 1)
+bearPopLen = math.max(nz(bearSwingAge, 1), 1)
+bullPopHigh = ta.highest(high[1], bullPopLen)
+bearPopLow = ta.lowest(low[1], bearPopLen)
+bullDispOk = not revEarlySweepRequireDisp or close > high[1] or bullWickDom or (bullRecentSwing and close > bullPopHigh)
+bearDispOk = not revEarlySweepRequireDisp or close < low[1] or bearWickDom or (bearRecentSwing and close < bearPopLow)
+bullSwingBodyOk = revEarlyAtr > 0 and (revEarlyBodyAtrRatio >= revEarlySwingMinBodyAtr or bullWickDom or (bullDispOk and revEarlyBodyAtrRatio >= revEarlyMinBodyAtr * 0.75))
+bearSwingBodyOk = revEarlyAtr > 0 and (revEarlyBodyAtrRatio >= revEarlySwingMinBodyAtr or bearWickDom or (bearDispOk and revEarlyBodyAtrRatio >= revEarlyMinBodyAtr * 0.75))
+
+bullLocalLow = low <= low[1] and low <= low[2]
+bearLocalHigh = high >= high[1] and high >= high[2]
+bullSslFresh = not na(sslReclaim) and close > sslReclaim and (low <= sslReclaim + sweepBuf or close[1] <= sslReclaim or low[1] <= sslReclaim + sweepBuf)
+bearBslFresh = not na(bslReclaim) and close < bslReclaim and (high >= bslReclaim - sweepBuf or close[1] >= bslReclaim or high[1] >= bslReclaim - sweepBuf)
+asiaLowWickDom = not na(sessAsiaSsl) and (close - low) > math.max(math.abs(close - open), revEarlyAtr * 0.04)
+asiaHighWickDom = not na(sessAsiaBsl) and (high - close) > math.max(math.abs(close - open), revEarlyAtr * 0.04)
+asiaLowHammer = sessPlaybookBear and not na(sessAsiaSsl) and low <= sessAsiaSsl + sweepBuf and close > sessAsiaSsl and asiaLowWickDom
+asiaHighHammer = sessPlaybookBull and not na(sessAsiaBsl) and high >= sessAsiaBsl - sweepBuf and close < sessAsiaBsl and asiaHighWickDom
+
+bullInstantRaw = bullSslFresh and bullLocalLow and (close > open or bullWickDom) and bullWickDom and bullSwingBodyOk
+bearInstantRaw = bearBslFresh and bearLocalHigh and (close < open or bearWickDom) and bearWickDom and bearSwingBodyOk
+bullInstantRaw := bullInstantRaw or (asiaLowHammer and bullLocalLow and bullSwingBodyOk and (inLondonSess or inNySess))
+bearInstantRaw := bearInstantRaw or (asiaHighHammer and bearLocalHigh and bearSwingBodyOk and (inLondonSess or inNySess))
+bullInstantSsl = bullInstantRaw and not bullInstantRaw[1] and not bullInstantRaw[2]
+bearInstantBsl = bearInstantRaw and not bearInstantRaw[1] and not bearInstantRaw[2]
+bullDeferReclaim = bullRecentSwing and not na(bullReclaimSsl) and close > bullReclaimSsl and close > open and bullDispOk and bullSwingBodyOk
+bearDeferReclaim = bearRecentSwing and not na(bearReclaimBsl) and close < bearReclaimBsl and close < open and bearDispOk and bearSwingBodyOk
+bullSwingReclaim = bullInstantSsl or bullDeferReclaim
+bearSwingReclaim = bearInstantBsl or bearDeferReclaim
+
+if revEarlySweepShow and revEarlyShow and bullSwingReclaim and bullSweepZoneOk and not bullDumpBlock and bullSweepCooldownOk
+    if bullInstantSsl or not bullEarlyCoreBase
+        if revEarlyContinuation and revEarlyTrendType == -1
+            bullSweepExcHit := true
+        else if revEarlyContinuation and revEarlyTrendType == 1
+            bullSweepCoreHit := true
+        else if bullInstantSsl
+            bullSweepExcHit := true
+
+if revEarlySweepShow and revEarlyShow and bearSwingReclaim and bearSweepZoneOk and not bearRipBlock and bearSweepCooldownOk
+    if bearInstantBsl or not bearEarlyCoreBase
+        if revEarlyContinuation and revEarlyTrendType == 1
+            bearSweepExcHit := true
+        else if revEarlyContinuation and revEarlyTrendType == -1
+            bearSweepCoreHit := true
+        else if bearInstantBsl
+            bearSweepExcHit := true
+
+bullPostSweepCoreBlock = not na(bullSweepLastBar) and bar.index > bullSweepLastBar and bar.index - bullSweepLastBar <= math.max(revEarlySwingLookback, revEarlySweepCooldownBars)
+bearPostSweepCoreBlock = not na(bearSweepLastBar) and bar.index > bearSweepLastBar and bar.index - bearSweepLastBar <= math.max(revEarlySwingLookback, revEarlySweepCooldownBars)
+
+bullExceptionFinal := bullExceptionBase or bullSweepExcHit
+bearExceptionFinal := bearExceptionBase or bearSweepExcHit
+bullEarlyCoreFinal := bullSweepCoreHit or (bullEarlyCoreBase and not bullPostSweepCoreBlock)
+bearEarlyCoreFinal := bearSweepCoreHit or (bearEarlyCoreBase and not bearPostSweepCoreBlock)
+
+bullExceptionPlot = switch revEarlyCounterTrendT
+    'Allow All' => revEarlyExceptionShow ? bullExceptionFinal : bullSweepExcHit
+    'Sweep Only' => bullSweepExcHit
+    => false
+bearExceptionPlot = switch revEarlyCounterTrendT
+    'Allow All' => revEarlyExceptionShow ? bearExceptionFinal : bearSweepExcHit
+    'Sweep Only' => bearSweepExcHit
+    => false
+
+bullEarlyStruct := bullEarlyCoreFinal or bullExceptionPlot
+bearEarlyStruct := bearEarlyCoreFinal or bearExceptionPlot
+
+barsSinceBullPlot = na(revEarlyLastBullPlotBar) ? 10000 : bar.index - revEarlyLastBullPlotBar
+barsSinceBearPlot = na(revEarlyLastBearPlotBar) ? 10000 : bar.index - revEarlyLastBearPlotBar
+revEarlyChop = revEarlyTrendType != 0 and stMS.type != 0 and revEarlyTrendType != stMS.type
+bullClusterOk = revEarlyClusterBars <= 0 or barsSinceBullPlot > revEarlyClusterBars
+bearClusterOk = revEarlyClusterBars <= 0 or barsSinceBearPlot > revEarlyClusterBars
+bullPingPongOk = not revEarlyChop or revEarlyPingPongBars <= 0 or barsSinceBearPlot > revEarlyPingPongBars
+bearPingPongOk = not revEarlyChop or revEarlyPingPongBars <= 0 or barsSinceBullPlot > revEarlyPingPongBars
+
+revEarlyDirType = switch revEarlyDirectionSource
+    'Macro' => revEarlyTrendType
+    'Trigger' => revEarlyTriggerType
+    'Macro + Micro' => revEarlyTrendType == 1 and stMS.type == 1 ? 1 : revEarlyTrendType == -1 and stMS.type == -1 ? -1 : 0
+    => stMS.type
+bullDirectionOk = not revEarlyAlignDirection or revEarlyDirType == 1
+bearDirectionOk = not revEarlyAlignDirection or revEarlyDirType == -1
+
+sessAllowBull = true
+sessAllowBear = true
+if sessEnable and sessFilterEarlyT == 'Hide Counter-Playbook'
+    sessAllowBull := bullInstantSsl or bullSweepExcHit or not sessPlaybookBear
+    sessAllowBear := bearInstantBsl or bearSweepExcHit or not sessPlaybookBull
+else if sessEnable and sessFilterEarlyT == 'Playbook Only'
+    sessAllowBull := bullInstantSsl or sessPlaybookBull
+    sessAllowBear := bearInstantBsl or sessPlaybookBear
+
+bullEarly := bullEarlyStruct and bullClusterOk and bullPingPongOk and bullDirectionOk and sessAllowBull
+bearEarly := bearEarlyStruct and bearClusterOk and bearPingPongOk and bearDirectionOk and sessAllowBear
+
+if bullEarlyCoreFinal
+    bullEarlyLastBar := bar.index
+    bullFlipSignaled := bullFlipBar
+if bearEarlyCoreFinal
+    bearEarlyLastBar := bar.index
+    bearFlipSignaled := bearFlipBar
+if bullExceptionPlot
+    bullExceptionLastBar := bar.index
+if bearExceptionPlot
+    bearExceptionLastBar := bar.index
+if bullSweepCoreHit or bullSweepExcHit
+    bullSweepLastBar := bar.index
+if bearSweepCoreHit or bearSweepExcHit
+    bearSweepLastBar := bar.index
+if bullEarly
+    revEarlyLastBullPlotBar := bar.index
+if bearEarly
+    revEarlyLastBearPlotBar := bar.index
+
+if revTrackShow
+    i = 0
+    while i < array.size(revPendDir)
+        pendDir = array.get(revPendDir, i)
+        tp = array.get(revPendTp, i)
+        sl = array.get(revPendSl, i)
+        born = array.get(revPendBorn, i)
+        expiry = array.get(revPendExpiry, i)
+        mode = array.get(revPendMode, i)
+
+        if bar.index <= born
+            i += 1
+        else
+            hitTp = pendDir == 1 ? high >= tp : low <= tp
+            hitSl = pendDir == 1 ? low <= sl : high >= sl
+            timedOut = bar.index >= expiry
+            resolved = false
+
+            if hitTp and not hitSl
+                if pendDir == 1
+                    revBullWin += 1
+                else
+                    revBearWin += 1
+                if mode == 0
+                    revCoreWin += 1
+                else
+                    revExceptionWin += 1
+                resolved := true
+            else if hitSl or (hitTp and hitSl)
+                if pendDir == 1
+                    revBullFalse += 1
+                else
+                    revBearFalse += 1
+                if mode == 0
+                    revCoreFalse += 1
+                else
+                    revExceptionFalse += 1
+                resolved := true
+            else if timedOut
+                if pendDir == 1
+                    revBullTimeout += 1
+                else
+                    revBearTimeout += 1
+                if mode == 0
+                    revCoreTimeout += 1
+                else
+                    revExceptionTimeout += 1
+                resolved := true
+
+            if resolved
+                array.remove(revPendDir, i)
+                array.remove(revPendEntry, i)
+                array.remove(revPendTp, i)
+                array.remove(revPendSl, i)
+                array.remove(revPendBorn, i)
+                array.remove(revPendExpiry, i)
+                array.remove(revPendMode, i)
+            else
+                i += 1
+
+    if bullEarly and revEarlyAtr > 0
+        mode = bullEarlyCoreFinal ? 0 : 1
+        entry = close
+        target = entry + revEarlyAtr * revTrackAtrTarget
+        stop = entry - revEarlyAtr * revTrackAtrTarget
+        array.push(revPendDir, 1)
+        array.push(revPendEntry, entry)
+        array.push(revPendTp, target)
+        array.push(revPendSl, stop)
+        array.push(revPendBorn, bar.index)
+        array.push(revPendExpiry, bar.index + revTrackLookaheadBars)
+        array.push(revPendMode, mode)
+        revBullTotal += 1
+        if mode == 0
+            revBullCoreTotal += 1
+        else
+            revBullExceptionTotal += 1
+
+    if bearEarly and revEarlyAtr > 0
+        mode = bearEarlyCoreFinal ? 0 : 1
+        entry = close
+        target = entry - revEarlyAtr * revTrackAtrTarget
+        stop = entry + revEarlyAtr * revTrackAtrTarget
+        array.push(revPendDir, -1)
+        array.push(revPendEntry, entry)
+        array.push(revPendTp, target)
+        array.push(revPendSl, stop)
+        array.push(revPendBorn, bar.index)
+        array.push(revPendExpiry, bar.index + revTrackLookaheadBars)
+        array.push(revPendMode, mode)
+        revBearTotal += 1
+        if mode == 0
+            revBearCoreTotal += 1
+        else
+            revBearExceptionTotal += 1
+
+revTiny = revMarkerSizeT == 'Tiny'
+revSmall = revMarkerSizeT == 'Small'
+revNormal = revMarkerSizeT == 'Normal'
+revLarge = revMarkerSizeT == 'Large'
+
+plotshape(bullEarly, title = 'Bullish Early Reversal Warning', style = shape.triangleup, location = location.belowbar, color = color.new(revBullColor, 0), size = size.tiny, text = '')
+plotshape(bearEarly, title = 'Bearish Early Reversal Warning', style = shape.triangledown, location = location.abovebar, color = color.new(revBearColor, 0), size = size.tiny, text = '')
+
+plotshape(bullReversal and revTiny, title = 'Bullish Reversal Marker Tiny', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.tiny, text = 'REV')
+plotshape(bullReversal and revSmall, title = 'Bullish Reversal Marker Small', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.small, text = 'REV')
+plotshape(bullReversal and revNormal, title = 'Bullish Reversal Marker Normal', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.normal, text = 'REV')
+plotshape(bullReversal and revLarge, title = 'Bullish Reversal Marker Large', style = shape.circle, location = location.belowbar, color = revBullColor, size = size.large, text = 'REV')
+
+plotshape(bearReversal and revTiny, title = 'Bearish Reversal Marker Tiny', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.tiny, text = 'REV')
+plotshape(bearReversal and revSmall, title = 'Bearish Reversal Marker Small', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.small, text = 'REV')
+plotshape(bearReversal and revNormal, title = 'Bearish Reversal Marker Normal', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.normal, text = 'REV')
+plotshape(bearReversal and revLarge, title = 'Bearish Reversal Marker Large', style = shape.circle, location = location.abovebar, color = revBearColor, size = size.large, text = 'REV')
+
+alertcondition(bullEarly, title = 'Bullish Early Reversal Warning', message = 'LUX-PA-v2: Early bullish reversal warning')
+alertcondition(bearEarly, title = 'Bearish Early Reversal Warning', message = 'LUX-PA-v2: Early bearish reversal warning')
+alertcondition(bullReversal, title = 'Bullish Confirmed Reversal', message = 'LUX-PA-v2: Confirmed bullish long-term reversal')
+alertcondition(bearReversal, title = 'Bearish Confirmed Reversal', message = 'LUX-PA-v2: Confirmed bearish long-term reversal')
+alertcondition(sessPlaybookBear and sessBreakSide == -1 and not sessBreakSide[1], title = 'Bear Playbook Active', message = 'LUX-PA-v2: Tight Asia coil + London break LOW — bear playbook')
+alertcondition(sessPlaybookBull and sessBreakSide == 1 and not sessBreakSide[1], title = 'Bull Playbook Active', message = 'LUX-PA-v2: Tight Asia coil + London break HIGH — bull playbook')
+
+// Persist previous structure states for next bar comparisons.
+stTypePrev := stMS.type
+itTypePrev := itMS.type
+ltTypePrev := ltMS.type
+mcTypePrev := mcMS.type
 
 //---------------------------------------------------------------------------------------------------------------------}
 // Calculations - Liquidity Voids 
@@ -925,26 +1304,30 @@ dispPeriod = lqMode == 'Present' ? last_bar_index - bar_index <=  lqPeriod : tru
 if lqVoid and dispPeriod and bar_index >= 2
     bull = bar.low - (bar[2]).high > atr200 and bar.low > (bar[2]).high and (bar[1]).close > (bar[2]).high
     bear = (bar[2]).low - bar.high > atr200 and bar.high < (bar[2]).low and (bar[1]).close < (bar[2]).low
+    lqVoidBullAlign = sessNyExpansion and sessBreakSide == 1
+    lqVoidBearAlign = sessNyExpansion and sessBreakSide == -1
 
     if bull 
         l  = 13
         if not bull[1]
             st = math.abs(bar.low - (bar[2]).high) / l
+            voidBg = lqVoidBullAlign ? color.new(#089981, 55) : cLQV_B
             for i = 0 to l - 1
                 if lqText and i == 0
-                    array.push(b_liq_V, box.new(bar.index - 2, (bar[2]).high + i * st, bar.index, (bar[2]).high + (i + 1) * st, text = 'Liquidity Void   ', text_size = size.small, text_halign = text.align_center, text_valign = text.align_bottom, text_color = color.new(#089981, 0), border_color = na, bgcolor = cLQV_B ))
+                    array.push(b_liq_V, box.new(bar.index - 2, (bar[2]).high + i * st, bar.index, (bar[2]).high + (i + 1) * st, text = lqVoidBullAlign ? 'Void · NY Exp' : 'Liquidity Void   ', text_size = size.small, text_halign = text.align_center, text_valign = text.align_bottom, text_color = color.new(#089981, 0), border_color = na, bgcolor = voidBg ))
                 else
-                    array.push(b_liq_V, box.new(bar.index - 2, (bar[2]).high + i * st, bar.index, (bar[2]).high + (i + 1) * st, border_color = na, bgcolor = cLQV_B ))
+                    array.push(b_liq_V, box.new(bar.index - 2, (bar[2]).high + i * st, bar.index, (bar[2]).high + (i + 1) * st, border_color = na, bgcolor = voidBg ))
 
     if bear
         l  = 13
         if not bear[1]
             st = math.abs((bar[2]).low - bar.high) / l
+            voidBg = lqVoidBearAlign ? color.new(#f23645, 55) : cLQV_S
             for i = 0 to l - 1
                 if lqText and i == l - 1
-                    array.push(b_liq_V, box.new(bar.index - 2, bar.high + i * st, bar.index, bar.high + (i + 1) * st, text = 'Liquidity Void   ', text_size = size.small, text_halign = text.align_center, text_valign = text.align_top, text_color = color.new(#f23645, 0), border_color = na, bgcolor = cLQV_S ))
+                    array.push(b_liq_V, box.new(bar.index - 2, bar.high + i * st, bar.index, bar.high + (i + 1) * st, text = lqVoidBearAlign ? 'Void · NY Exp' : 'Liquidity Void   ', text_size = size.small, text_halign = text.align_center, text_valign = text.align_top, text_color = color.new(#f23645, 0), border_color = na, bgcolor = voidBg ))
                 else
-                    array.push(b_liq_V, box.new(bar.index - 2, bar.high + i * st, bar.index, bar.high + (i + 1) * st, border_color = na, bgcolor = cLQV_S ))
+                    array.push(b_liq_V, box.new(bar.index - 2, bar.high + i * st, bar.index, bar.high + (i + 1) * st, border_color = na, bgcolor = voidBg ))
 
 if b_liq_V.size() > 0 and bar_index >= 1
     qt = b_liq_V.size()
@@ -1108,14 +1491,20 @@ if obbShow
                 break
 
     if inBullZone and not inBearZone
-        zoneStr := 'Bullish BB Zone'
+        zoneStr := bullAsiaEdgeZone ? 'Bull BB · Asia L' : 'Bullish BB Zone'
         zoneCol := color.new(#089981, 0)
     else if inBearZone and not inBullZone
-        zoneStr := 'Bearish BB Zone'
+        zoneStr := bearAsiaEdgeZone ? 'Bear BB · Asia H' : 'Bearish BB Zone'
         zoneCol := color.new(#f23645, 0)
     else if inBullZone and inBearZone
         zoneStr := 'Mixed BB Zone'
         zoneCol := color.orange
+    else if bullAsiaEdgeZone
+        zoneStr := 'Asia Low Edge'
+        zoneCol := color.new(#089981, 0)
+    else if bearAsiaEdgeZone
+        zoneStr := 'Asia High Edge'
+        zoneCol := color.new(#f23645, 0)
 else
     zoneStr := 'OBB Off'
 
@@ -1135,6 +1524,11 @@ for i = 0 to b_liq_S.size() - 1
         p = lv.bx.get_bottom()
         if p < close
             nearestSsl := na(nearestSsl) ? p : math.max(nearestSsl, p)
+
+if sessPlaybookBull and not na(sessAsiaBsl) and sessAsiaBsl > close
+    nearestBsl := na(nearestBsl) ? sessAsiaBsl : math.min(nearestBsl, sessAsiaBsl)
+if sessPlaybookBear and not na(sessAsiaSsl) and sessAsiaSsl < close
+    nearestSsl := na(nearestSsl) ? sessAsiaSsl : math.max(nearestSsl, sessAsiaSsl)
 
 targetStr = 'N/A'
 targetCol = color.silver
@@ -1156,43 +1550,182 @@ else
     else if not na(nearestSsl)
         targetStr := 'SSL ' + str.tostring(nearestSsl, format.mintick)
 
+sessPhaseStr = not sessEnable ? 'Off' : inAsiaSess ? 'Asia' : inLondonSess ? 'London' : inNySess ? 'NY' : 'Late'
+sessPhaseCol = inAsiaSess ? color.new(color.blue, 0) : inLondonSess ? color.new(color.orange, 0) : inNySess ? color.new(color.purple, 0) : color.silver
+sessCoilStr = not sessEnable or na(sessAsiaRange) ? 'N/A' : sessCoilActive ? 'Tight $' + str.tostring(sessAsiaRange, '#') : 'Wide $' + str.tostring(sessAsiaRange, '#')
+sessCoilCol = sessCoilActive ? color.new(color.lime, 0) : color.orange
+sessPlayStr = not sessEnable ? 'Off' : sessPlaybookBear ? 'BEAR · Break Low' : sessPlaybookBull ? 'BULL · Break High' : sessCoilActive and inLondonSess ? 'COIL · Watch' : sessCoilActive ? 'COIL · Wait' : 'No Coil'
+sessPlayCol = sessPlaybookBear ? color.new(#f23645, 0) : sessPlaybookBull ? color.new(#089981, 0) : sessCoilActive ? color.new(color.yellow, 0) : color.silver
+
 if dashShow
-    var table dash = table.new(dashPosition(dashPos), 2, 5, border_width = 1, frame_width = 1, frame_color = color.gray)
-    table.clear(dash, 0, 0, 1, 4)
+    var table dash = table.new(dashPosition(dashPos), 2, 7, border_width = 1, frame_width = 1, frame_color = color.gray)
+    table.clear(dash, 0, 0, 1, 6)
     table.cell(dash, 0, 0, 'Lux-PA', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.blue, 0))
-    table.cell(dash, 1, 0, 'Sniper 4-Row', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.blue, 0))
+    table.cell(dash, 1, 0, 'Sniper 6-Row', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.blue, 0))
     dashRow(dash, 1, 'MACRO', macroStr, macroCol)
     dashRow(dash, 2, 'MICRO MSS', microStr, microCol)
     dashRow(dash, 3, 'ZONE', zoneStr, zoneCol)
     dashRow(dash, 4, 'TARGET', targetStr, targetCol)
+    dashRow(dash, 5, 'SESSION', sessPhaseStr, sessPhaseCol)
+    dashRow(dash, 6, 'PLAYBOOK', sessPlayStr, sessPlayCol)
 
-if revTrackShow
-    bullPrecStr = ratioPctStr(revBullWin, revBullFalse)
-    bearPrecStr = ratioPctStr(revBearWin, revBearFalse)
-    allPrecStr = ratioPctStr(revBullWin + revBearWin, revBullFalse + revBearFalse)
-    corePrecStr = ratioPctStr(revCoreWin, revCoreFalse)
-    exceptionPrecStr = ratioPctStr(revExceptionWin, revExceptionFalse)
-    totalCore = revBullCoreTotal + revBearCoreTotal
-    totalException = revBullExceptionTotal + revBearExceptionTotal
-    totalTracked = revBullTotal + revBearTotal
-    totalTimeout = revBullTimeout + revBearTimeout
-    pendingTracked = array.size(revPendDir)
-    coreTimeoutStr = str.tostring(revCoreTimeout)
-    exceptionTimeoutStr = str.tostring(revExceptionTimeout)
+bullPrecStr = ratioPctStr(revBullWin, revBullFalse)
+bearPrecStr = ratioPctStr(revBearWin, revBearFalse)
+allPrecStr = ratioPctStr(revBullWin + revBearWin, revBullFalse + revBearFalse)
+corePrecStr = ratioPctStr(revCoreWin, revCoreFalse)
+exceptionPrecStr = ratioPctStr(revExceptionWin, revExceptionFalse)
+totalCore = revBullCoreTotal + revBearCoreTotal
+totalException = revBullExceptionTotal + revBearExceptionTotal
+totalTracked = revBullTotal + revBearTotal
+pendingTracked = array.size(revPendDir)
+coreTimeoutStr = str.tostring(revCoreTimeout)
+exceptionTimeoutStr = str.tostring(revExceptionTimeout)
 
-    var table trackDash = table.new(dashPosition(revTrackPos), 2, 11, border_width = 1, frame_width = 1, frame_color = color.gray)
-    table.clear(trackDash, 0, 0, 1, 10)
-    table.cell(trackDash, 0, 0, 'EARLY Track', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
-    table.cell(trackDash, 1, 0, str.tostring(totalTracked), text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
-    dashRow(trackDash, 1, 'Precision', allPrecStr, color.new(color.white, 0))
-    dashRow(trackDash, 2, 'Bull Prec', bullPrecStr, color.new(#089981, 0))
-    dashRow(trackDash, 3, 'Bear Prec', bearPrecStr, color.new(#f23645, 0))
-    dashRow(trackDash, 4, 'Core/Exc', str.tostring(totalCore) + ' / ' + str.tostring(totalException), color.silver)
-    dashRow(trackDash, 5, 'Core Prec', corePrecStr, color.new(color.yellow, 0))
-    dashRow(trackDash, 6, 'Exc Prec', exceptionPrecStr, color.new(color.orange, 0))
-    dashRow(trackDash, 7, 'Wins', str.tostring(revBullWin + revBearWin), color.new(color.lime, 0))
-    dashRow(trackDash, 8, 'False', str.tostring(revBullFalse + revBearFalse), color.new(color.red, 0))
-    dashRow(trackDash, 9, 'TO C/E', coreTimeoutStr + ' / ' + exceptionTimeoutStr, color.orange)
-    dashRow(trackDash, 10, 'Pending', str.tostring(pendingTracked), color.new(color.aqua, 0))
+// Next Move scenario engine (probabilistic bias, not prediction).
+nextMacroType = revEarlyTrendType
+nextMicroType = stMS.type
+nextChop = nextMacroType == 0 or nextMicroType == 0 or (nextMacroType != nextMicroType and not bullZoneContextOk and not bearZoneContextOk)
+nextBearCont = nextMacroType == -1 and nextMicroType == -1
+nextBullCont = nextMacroType == 1 and nextMicroType == 1
+nextBullPull = nextMacroType == -1 and (nextMicroType == 1 or bullZoneContextOk)
+nextBearPull = nextMacroType == 1 and (nextMicroType == -1 or bearZoneContextOk)
+
+nextMoveStr = 'Range / Wait'
+nextMoveCol = color.new(color.white, 0)
+nextSourceStr = 'Structure'
+nextConfNum = 50.0
+
+if bullEarly
+    nextMoveStr := bullSweepExcHit ? 'Bull Pullback' : bullSweepCoreHit ? 'Bull Continuation' : bullExceptionPlot ? 'Bull Pullback' : 'Bull Continuation'
+    nextMoveCol := color.new(#089981, 0)
+    nextSourceStr := bullSweepExcHit or bullSweepCoreHit ? 'Sweep' : bullExceptionPlot ? 'Exception' : 'Core'
+else if bearEarly
+    nextMoveStr := bearSweepExcHit ? 'Bear Pullback' : bearSweepCoreHit ? 'Bear Continuation' : bearExceptionPlot ? 'Bear Pullback' : 'Bear Continuation'
+    nextMoveCol := color.new(#f23645, 0)
+    nextSourceStr := bearSweepExcHit or bearSweepCoreHit ? 'Sweep' : bearExceptionPlot ? 'Exception' : 'Core'
+else if nextChop
+    nextMoveStr := 'Range / Wait'
+    nextMoveCol := color.new(#ECEFF1, 0)
+    nextSourceStr := 'Chop'
+else if nextBearCont
+    nextMoveStr := 'Bear Continuation'
+    nextMoveCol := color.new(#f23645, 0)
+    nextSourceStr := 'Core'
+else if nextBullCont
+    nextMoveStr := 'Bull Continuation'
+    nextMoveCol := color.new(#089981, 0)
+    nextSourceStr := 'Core'
+else if nextBullPull
+    nextMoveStr := 'Bull Pullback'
+    nextMoveCol := color.new(#089981, 0)
+    nextSourceStr := 'Exception'
+else if nextBearPull
+    nextMoveStr := 'Bear Pullback'
+    nextMoveCol := color.new(#f23645, 0)
+    nextSourceStr := 'Exception'
+else if sessPlaybookBear and (inLondonSess or inNySess)
+    nextMoveStr := 'Bear Continuation'
+    nextMoveCol := color.new(#f23645, 0)
+    nextSourceStr := 'Playbook'
+else if sessPlaybookBull and (inLondonSess or inNySess)
+    nextMoveStr := 'Bull Continuation'
+    nextMoveCol := color.new(#089981, 0)
+    nextSourceStr := 'Playbook'
+
+coreResolved = revCoreWin + revCoreFalse
+excResolved = revExceptionWin + revExceptionFalse
+bullResolved = revBullWin + revBullFalse
+bearResolved = revBearWin + revBearFalse
+corePrecNum = coreResolved > 0 ? (revCoreWin * 100.0) / coreResolved : na
+excPrecNum = excResolved > 0 ? (revExceptionWin * 100.0) / excResolved : na
+bullPrecNum = bullResolved > 0 ? (revBullWin * 100.0) / bullResolved : na
+bearPrecNum = bearResolved > 0 ? (revBearWin * 100.0) / bearResolved : na
+allResolved = revBullWin + revBearWin + revBullFalse + revBearFalse
+allPrecNum = allResolved > 0 ? ((revBullWin + revBearWin) * 100.0) / allResolved : na
+
+if nextSourceStr == 'Core'
+    if str.contains(nextMoveStr, 'Bull') and not na(bullPrecNum)
+        nextConfNum := bullPrecNum
+    else if str.contains(nextMoveStr, 'Bear') and not na(bearPrecNum)
+        nextConfNum := bearPrecNum
+    else if not na(corePrecNum)
+        nextConfNum := corePrecNum
+else if nextSourceStr == 'Exception' and not na(excPrecNum)
+    nextConfNum := excPrecNum
+else if nextSourceStr == 'Playbook' and sessConfBoost
+    if sessPlaybookBear and not na(bearPrecNum)
+        nextConfNum := math.min(100.0, bearPrecNum + sessBearConfAdd)
+    else if sessPlaybookBull and not na(bullPrecNum)
+        nextConfNum := math.min(100.0, bullPrecNum + sessBullConfAdd)
+    else if sessPlaybookBear
+        nextConfNum := 78.0
+    else if sessPlaybookBull
+        nextConfNum := 71.0
+else if nextSourceStr == 'Chop'
+    nextConfNum := 0
+else if not na(allPrecNum)
+    nextConfNum := allPrecNum
+
+nextConfStr = str.tostring(nextConfNum, '#.0') + '%'
+nextConfCol = nextConfNum >= nextMoveMinConf ? color.new(color.lime, 0) : nextConfNum >= 45 ? color.orange : color.new(#f23645, 0)
+
+nextTargetStr = 'N/A'
+nextTargetCol = color.new(color.white, 0)
+nextInvalidStr = 'N/A'
+nextInvalidCol = color.new(color.white, 0)
+nextWindowStr = str.tostring(revTrackLookaheadBars) + ' bars'
+nextMoveShort = 'RANGE'
+if nextMoveStr == 'Bull Continuation'
+    nextMoveShort := 'BULL CONT'
+else if nextMoveStr == 'Bull Pullback'
+    nextMoveShort := 'BULL PULL'
+else if nextMoveStr == 'Bear Continuation'
+    nextMoveShort := 'BEAR CONT'
+else if nextMoveStr == 'Bear Pullback'
+    nextMoveShort := 'BEAR PULL'
+else if nextMoveStr == 'Range / Wait'
+    nextMoveShort := 'RANGE'
+
+if str.contains(nextMoveStr, 'Bull')
+    nextTargetStr := not na(nearestBsl) ? 'BSL ' + str.tostring(nearestBsl, format.mintick) : targetStr
+    nextTargetCol := color.new(#089981, 0)
+    nextInvalidStr := not na(sessAsiaLow) and sessPlaybookBull ? str.tostring(sessAsiaLow, format.mintick) : not na(itLow.lastPrice) ? str.tostring(itLow.lastPrice, format.mintick) : str.tostring(ltLow.lastPrice, format.mintick)
+    nextInvalidCol := color.new(#f23645, 0)
+else if str.contains(nextMoveStr, 'Bear')
+    nextTargetStr := not na(nearestSsl) ? 'SSL ' + str.tostring(nearestSsl, format.mintick) : targetStr
+    nextTargetCol := color.new(#f23645, 0)
+    nextInvalidStr := not na(sessAsiaHigh) and sessPlaybookBear ? str.tostring(sessAsiaHigh, format.mintick) : not na(itHigh.lastPrice) ? str.tostring(itHigh.lastPrice, format.mintick) : str.tostring(ltHigh.lastPrice, format.mintick)
+    nextInvalidCol := color.new(#089981, 0)
+
+if revTrackShow or nextMoveShow
+    moveColL = revTrackShow ? 2 : 0
+    moveColR = revTrackShow ? 3 : 1
+    var table comboDash = table.new(dashPosition(dashTrackPos), 4, 12, border_width = 1, frame_width = 1, frame_color = color.gray)
+    table.clear(comboDash, 0, 0, 3, 11)
+
+    if revTrackShow
+        table.cell(comboDash, 0, 0, 'EARLY Track', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
+        table.cell(comboDash, 1, 0, str.tostring(totalTracked), text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
+        dashRow(comboDash, 1, 'Precision', allPrecStr, color.new(color.white, 0))
+        dashRow(comboDash, 2, 'Bull Prec', bullPrecStr, color.new(#089981, 0))
+        dashRow(comboDash, 3, 'Bear Prec', bearPrecStr, color.new(#f23645, 0))
+        dashRow(comboDash, 4, 'Core/Exc', str.tostring(totalCore) + ' / ' + str.tostring(totalException), color.silver)
+        dashRow(comboDash, 5, 'Core Prec', corePrecStr, color.new(color.yellow, 0))
+        dashRow(comboDash, 6, 'Exc Prec', exceptionPrecStr, color.new(color.orange, 0))
+        dashRow(comboDash, 7, 'Wins', str.tostring(revBullWin + revBearWin), color.new(color.lime, 0))
+        dashRow(comboDash, 8, 'False', str.tostring(revBullFalse + revBearFalse), color.new(color.red, 0))
+        dashRow(comboDash, 9, 'TO C/E', coreTimeoutStr + ' / ' + exceptionTimeoutStr, color.orange)
+        dashRow(comboDash, 10, 'Pending', str.tostring(pendingTracked), color.new(color.aqua, 0))
+
+    if nextMoveShow
+        table.cell(comboDash, moveColL, 0, 'NEXT MOVE', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.teal, 0))
+        table.cell(comboDash, moveColR, 0, nextMoveShort, text_color = nextMoveCol, text_size = size.tiny, bgcolor = color.new(color.black, 60))
+        dashRowAt(comboDash, moveColL, moveColR, 1, 'CONF', nextConfStr, nextConfCol)
+        dashRowAt(comboDash, moveColL, moveColR, 2, 'TARGET', nextTargetStr, nextTargetCol)
+        dashRowAt(comboDash, moveColL, moveColR, 3, 'INVALID', nextInvalidStr, nextInvalidCol)
+        dashRowAt(comboDash, moveColL, moveColR, 4, 'WINDOW', nextWindowStr, color.silver)
+        dashRowAt(comboDash, moveColL, moveColR, 5, 'SOURCE', nextSourceStr, nextMoveCol)
+        dashRowAt(comboDash, moveColL, moveColR, 6, 'COIL', sessCoilStr, sessCoilCol)
+        dashRowAt(comboDash, moveColL, moveColR, 7, 'PLAYBOOK', sessPlayStr, sessPlayCol)
 
 //---------------------------------------------------------------------------------------------------------------------}
