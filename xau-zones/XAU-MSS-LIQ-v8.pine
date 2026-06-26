@@ -30,7 +30,7 @@
 // WHERE liquidity sits and WHEN structure has actually shifted, so the decision
 // stays with you.
 // ════════════════════════════════════════════════════════════════════════════
-strategy("XAU-MSS-LIQ-v8", shorttitle="XAU-MSS-LIQ-v8", overlay=true,
+strategy("XAU-MSS-LIQ-v8", shorttitle="MSS-LIQ-v8", overlay=true,
      max_labels_count=200, max_lines_count=300, max_boxes_count=50,
      initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1,
      pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false,
