@@ -58,7 +58,10 @@ swBearColor = input.color(#f23645, 'Bearish', group = swGroup, inline = 'MS')
 dashGroup = 'Dashboard'
 dashShow = input.bool(true, 'Show Lux-PA Panel', group = dashGroup, display = display)
 dashPos = input.string('Top Right', 'Lux-PA Panel Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = dashGroup, display = display)
-dashTrackPos = input.string('Bottom Left', 'EARLY / NEXT MOVE Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = dashGroup, display = display)
+dashEarlyShow = input.bool(true, 'Show EARLY Track Panel', group = dashGroup, display = display)
+dashEarlyPos = input.string('Bottom Left', 'EARLY Track Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = dashGroup, display = display)
+dashNextMoveShow = input.bool(true, 'Show NEXT MOVE Panel', group = dashGroup, display = display)
+dashNextMovePos = input.string('Bottom Right', 'NEXT MOVE Position', options = ['Top Right', 'Top Left', 'Bottom Right', 'Bottom Left'], group = dashGroup, display = display)
 dashTargetConfluenceT = input.string('Strict (Macro+Micro)', '  Target Direction Filter', options = ['Loose', 'Strict (Macro+Micro)'], group = dashGroup, display = display)
 dashTargetConfluence = dashTargetConfluenceT == 'Strict (Macro+Micro)'
 
@@ -119,7 +122,6 @@ revEarlySweepCooldownBars = input.int(12, '  Swing Reclaim Cooldown Bars', m
 revTrackShow = input.bool(true, '  Track Early Quality', group = revGroup, display = display)
 revTrackLookaheadBars = input.int(20, '  Track Lookahead Bars', minval = 1, group = revGroup, display = display)
 revTrackAtrTarget = input.float(0.60, '  Track Target/Stop (ATR)', minval = 0.1, step = 0.05, group = revGroup, display = display)
-nextMoveShow = input.bool(true, '  Show Next Move Panel', group = revGroup, display = display)
 nextMoveMinConf = input.int(52, '  Min Confidence Display', minval = 0, maxval = 100, group = revGroup, display = display)
 revBullColor = input.color(color.new(#089981, 0), '  Bullish', inline = 'REV', group = revGroup)
 revBearColor = input.color(color.new(#f23645, 0), 'Bearish', inline = 'REV', group = revGroup)
@@ -1696,35 +1698,139 @@ else if str.contains(nextMoveStr, 'Bear')
     nextInvalidStr := not na(sessAsiaHigh) and sessPlaybookBear ? str.tostring(sessAsiaHigh, format.mintick) : not na(itHigh.lastPrice) ? str.tostring(itHigh.lastPrice, format.mintick) : str.tostring(ltHigh.lastPrice, format.mintick)
     nextInvalidCol := color.new(#089981, 0)
 
-if revTrackShow or nextMoveShow
-    moveColL = revTrackShow ? 2 : 0
-    moveColR = revTrackShow ? 3 : 1
-    var table comboDash = table.new(dashPosition(dashTrackPos), 4, 12, border_width = 1, frame_width = 1, frame_color = color.gray)
-    table.clear(comboDash, 0, 0, 3, 11)
+if dashEarlyShow
+    var table earlyDash = table.new(dashPosition(dashEarlyPos), 2, 11, border_width = 1, frame_width = 1, frame_color = color.gray)
+    table.clear(earlyDash, 0, 0, 1, 10)
+    table.cell(earlyDash, 0, 0, 'EARLY Track', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
+    table.cell(earlyDash, 1, 0, str.tostring(totalTracked), text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
+    dashRow(earlyDash, 1, 'Precision', allPrecStr, color.new(color.white, 0))
+    dashRow(earlyDash, 2, 'Bull Prec', bullPrecStr, color.new(#089981, 0))
+    dashRow(earlyDash, 3, 'Bear Prec', bearPrecStr, color.new(#f23645, 0))
+    dashRow(earlyDash, 4, 'Core/Exc', str.tostring(totalCore) + ' / ' + str.tostring(totalException), color.silver)
+    dashRow(earlyDash, 5, 'Core Prec', corePrecStr, color.new(color.yellow, 0))
+    dashRow(earlyDash, 6, 'Exc Prec', exceptionPrecStr, color.new(color.orange, 0))
+    dashRow(earlyDash, 7, 'Wins', str.tostring(revBullWin + revBearWin), color.new(color.lime, 0))
+    dashRow(earlyDash, 8, 'False', str.tostring(revBullFalse + revBearFalse), color.new(color.red, 0))
+    dashRow(earlyDash, 9, 'TO C/E', coreTimeoutStr + ' / ' + exceptionTimeoutStr, color.orange)
+    dashRow(earlyDash, 10, 'Pending', str.tostring(pendingTracked), color.new(color.aqua, 0))
 
-    if revTrackShow
-        table.cell(comboDash, 0, 0, 'EARLY Track', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
-        table.cell(comboDash, 1, 0, str.tostring(totalTracked), text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.purple, 0))
-        dashRow(comboDash, 1, 'Precision', allPrecStr, color.new(color.white, 0))
-        dashRow(comboDash, 2, 'Bull Prec', bullPrecStr, color.new(#089981, 0))
-        dashRow(comboDash, 3, 'Bear Prec', bearPrecStr, color.new(#f23645, 0))
-        dashRow(comboDash, 4, 'Core/Exc', str.tostring(totalCore) + ' / ' + str.tostring(totalException), color.silver)
-        dashRow(comboDash, 5, 'Core Prec', corePrecStr, color.new(color.yellow, 0))
-        dashRow(comboDash, 6, 'Exc Prec', exceptionPrecStr, color.new(color.orange, 0))
-        dashRow(comboDash, 7, 'Wins', str.tostring(revBullWin + revBearWin), color.new(color.lime, 0))
-        dashRow(comboDash, 8, 'False', str.tostring(revBullFalse + revBearFalse), color.new(color.red, 0))
-        dashRow(comboDash, 9, 'TO C/E', coreTimeoutStr + ' / ' + exceptionTimeoutStr, color.orange)
-        dashRow(comboDash, 10, 'Pending', str.tostring(pendingTracked), color.new(color.aqua, 0))
+if dashNextMoveShow
+    var table nextDash = table.new(dashPosition(dashNextMovePos), 2, 8, border_width = 1, frame_width = 1, frame_color = color.gray)
+    table.clear(nextDash, 0, 0, 1, 7)
+    table.cell(nextDash, 0, 0, 'NEXT MOVE', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.teal, 0))
+    table.cell(nextDash, 1, 0, nextMoveShort, text_color = nextMoveCol, text_size = size.tiny, bgcolor = color.new(color.black, 60))
+    dashRow(nextDash, 1, 'CONF', nextConfStr, nextConfCol)
+    dashRow(nextDash, 2, 'TARGET', nextTargetStr, nextTargetCol)
+    dashRow(nextDash, 3, 'INVALID', nextInvalidStr, nextInvalidCol)
+    dashRow(nextDash, 4, 'WINDOW', nextWindowStr, color.silver)
+    dashRow(nextDash, 5, 'SOURCE', nextSourceStr, nextMoveCol)
+    dashRow(nextDash, 6, 'COIL', sessCoilStr, sessCoilCol)
+    dashRow(nextDash, 7, 'PLAYBOOK', sessPlayStr, sessPlayCol)
 
-    if nextMoveShow
-        table.cell(comboDash, moveColL, 0, 'NEXT MOVE', text_color = color.white, text_size = size.tiny, bgcolor = color.new(color.teal, 0))
-        table.cell(comboDash, moveColR, 0, nextMoveShort, text_color = nextMoveCol, text_size = size.tiny, bgcolor = color.new(color.black, 60))
-        dashRowAt(comboDash, moveColL, moveColR, 1, 'CONF', nextConfStr, nextConfCol)
-        dashRowAt(comboDash, moveColL, moveColR, 2, 'TARGET', nextTargetStr, nextTargetCol)
-        dashRowAt(comboDash, moveColL, moveColR, 3, 'INVALID', nextInvalidStr, nextInvalidCol)
-        dashRowAt(comboDash, moveColL, moveColR, 4, 'WINDOW', nextWindowStr, color.silver)
-        dashRowAt(comboDash, moveColL, moveColR, 5, 'SOURCE', nextSourceStr, nextMoveCol)
-        dashRowAt(comboDash, moveColL, moveColR, 6, 'COIL', sessCoilStr, sessCoilCol)
-        dashRowAt(comboDash, moveColL, moveColR, 7, 'PLAYBOOK', sessPlayStr, sessPlayCol)
+//---------------------------------------------------------------------------------------------------------------------}
+//---------------------------------------------------------------------------------------------------------------------
+// A+ SETUP TRIGGER  (added in v2) — gated entry signal with auto Entry / SL / TP
+//---------------------------------------------------------------------------------------------------------------------{
+// This block is READ-ONLY against existing logic: it consumes variables the script already
+// computes (bullEarly, bearEarly, stMS, mcMS, zone flags, playbook flags, nearestBsl/Ssl,
+// nextConfNum, revEarlyAtr) and never reassigns them. Safe to delete with no side effects.
 
+trigGroup = 'A+ Setup Trigger'
+trigShow        = input.bool(true,  'Show A+ Setup Trigger', group = trigGroup)
+trigReqMacro    = input.bool(true,  '  Require Macro alignment',        group = trigGroup)
+trigReqMicro    = input.bool(true,  '  Require Micro MSS alignment',    group = trigGroup)
+trigReqPlaybook = input.bool(true,  '  Require Session Playbook align', group = trigGroup)
+trigReqZone     = input.bool(true,  '  Require Zone context (BB/Edge)', group = trigGroup)
+trigReqConf     = input.bool(true,  '  Require CONF >= threshold',      group = trigGroup)
+trigMinConf     = input.float(52.0, '  CONF threshold (%)', minval = 0, maxval = 100, step = 1, group = trigGroup)
+trigRR          = input.float(2.0,  '  Min Reward:Risk to plot',  minval = 0.1, step = 0.1, group = trigGroup, tooltip = 'Setup only plots if TP distance / SL distance is at least this. Set low to see all.')
+trigSlAtrMult   = input.float(0.50, '  SL buffer beyond zone (ATR)', minval = 0, step = 0.05, group = trigGroup)
+trigUsePoolTp   = input.bool(true,  '  TP = nearest liquidity pool',  group = trigGroup, tooltip = 'On: TP is nearest BSL/SSL. Off: TP = entry +/- (RR x risk).')
+trigLabelSize   = input.string('Normal', '  Label Size', options = ['Tiny','Small','Normal','Large'], group = trigGroup)
+trigBoxShow     = input.bool(true,  '  Draw Entry/SL/TP zones', group = trigGroup)
+trigBullCol     = input.color(color.new(#089981, 0), '  Bull', inline = 'TC', group = trigGroup)
+trigBearCol     = input.color(color.new(#f23645, 0), 'Bear',   inline = 'TC', group = trigGroup)
+
+// --- gate conditions (each optional via toggle) ---
+trigMacroBull = not trigReqMacro    or mcMS.type == 1
+trigMacroBear = not trigReqMacro    or mcMS.type == -1
+trigMicroBull = not trigReqMicro    or stMS.type == 1
+trigMicroBear = not trigReqMicro    or stMS.type == -1
+trigPlayBull  = not trigReqPlaybook or sessPlaybookBull or not sessEnable
+trigPlayBear  = not trigReqPlaybook or sessPlaybookBear or not sessEnable
+trigZoneBull  = not trigReqZone     or bullZoneContextOk
+trigZoneBear  = not trigReqZone     or bearZoneContextOk
+trigConfOk    = not trigReqConf     or nextConfNum >= trigMinConf
+
+// --- raw A+ events: existing trigger + all enabled gates ---
+trigBullRaw = trigShow and bullEarly and trigMacroBull and trigMicroBull and trigPlayBull and trigZoneBull and trigConfOk
+trigBearRaw = trigShow and bearEarly and trigMacroBear and trigMicroBear and trigPlayBear and trigZoneBear and trigConfOk
+
+// --- build Entry / SL / TP ---
+trigAtr = revEarlyAtr
+var float trigEntry = na
+var float trigSl = na
+var float trigTp = na
+
+makeBullSetup() =>
+    e  = close
+    z  = bullZoneContextOk and not na(sessAsiaLow) ? math.min(low, sessAsiaLow) : low
+    sl = z - trigAtr * trigSlAtrMult
+    risk = e - sl
+    tpPool = not na(nearestBsl) ? nearestBsl : na
+    tp = trigUsePoolTp and not na(tpPool) ? tpPool : e + risk * trigRR
+    [e, sl, tp, risk]
+
+makeBearSetup() =>
+    e  = close
+    z  = bearZoneContextOk and not na(sessAsiaHigh) ? math.max(high, sessAsiaHigh) : high
+    sl = z + trigAtr * trigSlAtrMult
+    risk = sl - e
+    tpPool = not na(nearestSsl) ? nearestSsl : na
+    tp = trigUsePoolTp and not na(tpPool) ? tpPool : e - risk * trigRR
+    [e, sl, tp, risk]
+
+trigBull = false
+trigBear = false
+if trigBullRaw
+    [e, sl, tp, risk] = makeBullSetup()
+    rr = risk > 0 ? (tp - e) / risk : 0
+    if rr >= trigRR and tp > e
+        trigBull := true
+        trigEntry := e
+        trigSl := sl
+        trigTp := tp
+else if trigBearRaw
+    [e, sl, tp, risk] = makeBearSetup()
+    rr = risk > 0 ? (e - tp) / risk : 0
+    if rr >= trigRR and tp < e
+        trigBear := true
+        trigEntry := e
+        trigSl := sl
+        trigTp := tp
+
+
+// --- draw ---
+trigLblSz = textSize(trigLabelSize)
+if trigBull
+    rr = (trigTp - trigEntry) / (trigEntry - trigSl)
+    label.new(bar_index, trigSl, '▲ A+ LONG\nEntry ' + str.tostring(trigEntry, format.mintick) + '\nSL ' + str.tostring(trigSl, format.mintick) + '\nTP ' + str.tostring(trigTp, format.mintick) + '\nR:R ' + str.tostring(rr, '#.0'), style = label.style_label_up, color = trigBullCol, textcolor = color.white, size = trigLblSz)
+    if trigBoxShow
+        box.new(bar_index, trigTp, bar_index + 12, trigEntry, border_color = color.new(trigBullCol, 50), bgcolor = color.new(trigBullCol, 85))
+        box.new(bar_index, trigEntry, bar_index + 12, trigSl, border_color = color.new(trigBearCol, 50), bgcolor = color.new(trigBearCol, 85))
+        line.new(bar_index, trigEntry, bar_index + 12, trigEntry, color = color.white, style = line.style_dashed, width = 1)
+if trigBear
+    rr = (trigEntry - trigTp) / (trigSl - trigEntry)
+    label.new(bar_index, trigSl, '▼ A+ SHORT\nEntry ' + str.tostring(trigEntry, format.mintick) + '\nSL ' + str.tostring(trigSl, format.mintick) + '\nTP ' + str.tostring(trigTp, format.mintick) + '\nR:R ' + str.tostring(rr, '#.0'), style = label.style_label_down, color = trigBearCol, textcolor = color.white, size = trigLblSz)
+    if trigBoxShow
+        box.new(bar_index, trigEntry, bar_index + 12, trigTp, border_color = color.new(trigBearCol, 50), bgcolor = color.new(trigBearCol, 85))
+        box.new(bar_index, trigSl, bar_index + 12, trigEntry, border_color = color.new(trigBullCol, 50), bgcolor = color.new(trigBullCol, 85))
+        line.new(bar_index, trigEntry, bar_index + 12, trigEntry, color = color.white, style = line.style_dashed, width = 1)
+
+// --- alerts ---
+alertcondition(trigBull, title = 'A+ Long Setup', message = 'LUX-PA-v2: A+ LONG — gated trigger fired. Entry/SL/TP on chart.')
+alertcondition(trigBear, title = 'A+ Short Setup', message = 'LUX-PA-v2: A+ SHORT — gated trigger fired. Entry/SL/TP on chart.')
+
+plotshape(trigBull, title = 'A+ Long', style = shape.triangleup,   location = location.belowbar, color = trigBullCol, size = size.small)
+plotshape(trigBear, title = 'A+ Short', style = shape.triangledown, location = location.abovebar, color = trigBearCol, size = size.small)
 //---------------------------------------------------------------------------------------------------------------------}
