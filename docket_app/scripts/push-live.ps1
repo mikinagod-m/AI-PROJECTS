@@ -138,12 +138,27 @@ function Restart-LiveDocket {
     Invoke-Command -ComputerName $LiveHost -ScriptBlock {
         param($Dir)
         Set-Location $Dir
+        $pidFile = Join-Path $Dir ".runtime\docket.pid"
+        $pidBefore = $null
+        if (Test-Path $pidFile) {
+            $pidBefore = (Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        }
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\stop-hidden.ps1
         $stopCode = $LASTEXITCODE
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-hidden.ps1
         $startCode = $LASTEXITCODE
         if ($startCode -ne 0) {
             throw "start-hidden.ps1 exited $startCode (stop exited $stopCode)"
+        }
+        $pidAfter = $null
+        if (Test-Path $pidFile) {
+            $pidAfter = (Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        }
+        if (-not $pidAfter) {
+            throw "Live PID missing after start (stop exited $stopCode)"
+        }
+        if ($pidAfter -eq $pidBefore) {
+            throw "Live PID unchanged after restart: $pidAfter (stop exited $stopCode)"
         }
     } -ArgumentList $LiveLocalPath
 }
