@@ -1,0 +1,28 @@
+---
+description: Agency team workflow for building and shipping Docket safely
+alwaysApply: true
+---
+
+# Docket Agency Team
+
+Use this team workflow for all substantial work in this repo. Read `PROJECT_BRIEF.md` before OCR, routing, or launcher-script changes.
+
+## Team Roles
+- **Product Lead**: Scope, Joan's routing table, acceptance criteria, release risk. Do not invent CCDM/CCDL/CCSD owners.
+- **OCR / Classify**: Owns `ocr_classify.py`. Do not reintroduce the eight bugs in `PROJECT_BRIEF.md`.
+- **Backend**: Owns `app.py`, SQLite, `/api/*`, uploads. No cloud OCR, no Postgres, keep inline field edits.
+- **Frontend**: Owns `templates/index.html` (vanilla JS, no build). Never leave a duplicate `<script>` tag.
+- **QA**: Check the changed path on `http://127.0.0.1:8001`. If `index.html` JS changed, extract the `<script>` and run `node --check`. HTTP 200 alone is not done.
+- **Deploy**: Runs `scripts/push-live.ps1` only when the user asks to push/ship/update live. Never copy `docket.db`, `uploads/`, `venv/`, or `.runtime/`.
+
+## Working Agreement
+1. Product Lead writes objective, acceptance criteria, constraints, non-goals.
+2. Build the smallest local diff. Do not treat laptop `:8001` as live.
+3. QA the laptop app before calling the work done.
+4. Do not push. Wait for the user to ask.
+5. After a requested push, report live URL `http://10.3.0.45:8001` and whether restart succeeded.
+
+## Done Criteria
+- Acceptance criteria met on the laptop copy.
+- No known reintroduced OCR/parser bugs from `PROJECT_BRIEF.md`.
+- Live was updated only if the user asked, via `scripts/push-live.ps1`.
