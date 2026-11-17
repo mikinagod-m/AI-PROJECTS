@@ -308,3 +308,156 @@ def _col_letter(index: int) -> str:
         index, rem = divmod(index - 1, 26)
         letters = chr(65 + rem) + letters
     return letters
+
+
+@dataclass
+class SkuMaster:
+    part: str
+    description: str
+    cases_per_hour: Optional[float]
+    demand_driver: str
+
+
+@dataclass
+class Trial:
+    sku: str
+    week: date
+    cases: float
+
+
+@dataclass
+class SkuSeries:
+    part: str
+    description: str
+    opening: float
+    weeks: list[date]
+    forecast: list[float]
+    production: list[float]
+    trials: list[float]
+    stock: list[float]
+
+
+@dataclass
+class Stockout:
+    part: str
+    description: str
+    week: date
+    cases_short: float
+
+
+@dataclass
+class CoverFlag:
+    part: str
+    description: str
+    week: date
+    cover_weeks: float
+
+
+@dataclass
+class Board:
+    series: list[SkuSeries]
+    stockouts: list[Stockout]
+    cover: list[CoverFlag]
+    warnings: list[LoadWarning]
+    weeks: list[date]
+
+
+# PHASE 2: material netter (BOM, PO, lead time) — not implemented
+def project(extracts: ExtractSet, master: list[SkuMaster], trials: list[Trial], cover_n: int = 8) -> Board:
+    parts = [sku.part for sku in master]
+    weeks = horizon_weeks(
+        {part: extracts.forecast.get(part, {}) for part in parts},
+        {part: extracts.production.get(part, {}) for part in parts},
+    )
+    week_set = set(weeks)
+    master_parts = set(parts)
+    trial_cases: dict[tuple[str, date], float] = {}
+    for trial in trials:
+        if trial.sku not in master_parts:
+            raise ParseError(f"trial SKU not on master: {trial.sku}")
+        if trial.week not in week_set:
+            raise ParseError(f"trial week not on horizon: {trial.week.isoformat()}")
+        key = (trial.sku, trial.week)
+        trial_cases[key] = trial_cases.get(key, 0.0) + trial.cases
+
+    warnings = list(extracts.warnings)
+    series: list[SkuSeries] = []
+    stockouts: list[Stockout] = []
+    cover: list[CoverFlag] = []
+    for sku in master:
+        opening, missing = _opening_for(extracts.opening, sku.part)
+        if missing:
+            warnings.append(
+                LoadWarning(
+                    "missing_opening_stock",
+                    f"{sku.part}: missing opening stock",
+                )
+            )
+        forecast = [_at_week(extracts.forecast, sku.part, week) for week in weeks]
+        production = [_at_week(extracts.production, sku.part, week) for week in weeks]
+        trial_row = [trial_cases.get((sku.part, week), 0.0) for week in weeks]
+        stock = _project_stock(opening, forecast, production, trial_row)
+        series.append(
+            SkuSeries(
+                sku.part,
+                sku.description,
+                opening,
+                list(weeks),
+                forecast,
+                production,
+                trial_row,
+                stock,
+            )
+        )
+        stockout = _first_stockout(sku.part, sku.description, weeks, stock)
+        if stockout is not None:
+            stockouts.append(stockout)
+        flag = _cover_flag(sku.part, sku.description, weeks, forecast, stock, cover_n)
+        if flag is not None:
+            cover.append(flag)
+    return Board(series, stockouts, cover, warnings, weeks)
+
+
+def _opening_for(opening: dict[str, float], part: str) -> tuple[float, bool]:
+    if part not in opening:
+        return 0.0, True
+    return float(opening[part]), False
+
+
+def _at_week(series: dict[str, dict[date, float]], part: str, week: date) -> float:
+    return float(series.get(part, {}).get(week, 0.0))
+
+
+def _project_stock(opening, forecast, production, trials) -> list[float]:
+    previous = opening
+    stock: list[float] = []
+    for forecast_qty, production_qty, trial_qty in zip(forecast, production, trials):
+        previous = previous - forecast_qty + production_qty + trial_qty
+        stock.append(previous)
+    return stock
+
+
+def _first_stockout(part, description, weeks, stock) -> Optional[Stockout]:
+    for week, qty in zip(weeks, stock):
+        if qty < 0:
+            return Stockout(part, description, week, abs(qty))
+    return None
+
+
+def _cover_flag(part, description, weeks, forecast, stock, cover_n) -> Optional[CoverFlag]:
+    best_week = None
+    best_cover = None
+    for index, week in enumerate(weeks):
+        window = forecast[index:index + cover_n]
+        if not window:
+            continue
+        average = sum(window) / len(window)
+        if average == 0:
+            continue
+        cover_weeks = stock[index] / average
+        if best_cover is None or cover_weeks > best_cover:
+            best_cover = cover_weeks
+            best_week = week
+    if best_cover is None or best_week is None or best_cover <= cover_n:
+        return None
+    return CoverFlag(part, description, best_week, best_cover)
