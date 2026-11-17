@@ -1,20 +1,33 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>PCH1 load</title>
-</head>
-<body>
-  <h1>PCH1</h1>
+{% extends "base.html" %}
+{% block title %}Load extracts · PCH1{% endblock %}
+{% block body %}
+<main class="board load-board">
+  <header class="mast">
+    <p class="eyebrow">Morning board</p>
+    <h1 class="mark">PCH1</h1>
+    <p class="meta">Load stkavail, fcastbydate, and wo_replen. One workbook is the fallback.</p>
+  </header>
   {% if error %}
-  <p role="alert">{{ error }}</p>
+  <p class="alert" role="alert">{{ error }}</p>
   {% endif %}
-  <form action="/load" method="post" enctype="multipart/form-data">
-    <label>stkavail <input type="file" name="stkavail"></label>
-    <label>fcastbydate <input type="file" name="fcastbydate"></label>
-    <label>wo_replen <input type="file" name="wo_replen"></label>
-    <label>workbook <input type="file" name="workbook"></label>
-    <button type="submit">Load</button>
+  <form class="load-form" action="/load" method="post" enctype="multipart/form-data">
+    <label class="file">
+      <span>stkavail</span>
+      <input type="file" name="stkavail" accept=".xlsx,.xlsm">
+    </label>
+    <label class="file">
+      <span>fcastbydate</span>
+      <input type="file" name="fcastbydate" accept=".xlsx,.xlsm">
+    </label>
+    <label class="file">
+      <span>wo_replen</span>
+      <input type="file" name="wo_replen" accept=".xlsx,.xlsm">
+    </label>
+    <label class="file">
+      <span>workbook</span>
+      <input type="file" name="workbook" accept=".xlsx,.xlsm">
+    </label>
+    <button class="primary" type="submit">Load</button>
   </form>
-</body>
-</html>
+</main>
+{% endblock %}

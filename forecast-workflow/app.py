@@ -65,7 +65,13 @@ def create_app(db_path, upload_dir):
         if board is None:
             return redirect(url_for("load_form"))
         clear_trials = bool(session.pop("clear_trials", False))
-        return render_template("board.html", board=board, clear_trials=clear_trials)
+        return render_template(
+            "board.html",
+            board=board,
+            clear_trials=clear_trials,
+            cover_n=get_cover_n(db_path),
+            cover_n_label="starter default — confirm with planning",
+        )
 
     @app.post("/board")
     def board_trials():

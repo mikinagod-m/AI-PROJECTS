@@ -1,26 +1,170 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>PCH1</title>
-</head>
-<body data-clear-trials="{{ 1 if clear_trials else 0 }}">
-  <h1>PCH1</h1>
-  <h2>Stockouts</h2>
-  {% if board.stockouts %}
-  <ul>
-    {% for row in board.stockouts %}
-    <li>{{ row.part }} {{ row.description }} {{ row.week.isoformat() }} {{ row.cases_short }}</li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p>No projected stockouts on PCH1 for this horizon.</p>
-  {% endif %}
-  <h2>Cover</h2>
-  <ul>
-    {% for row in board.cover %}
-    <li>{{ row.part }} {{ row.description }} {{ row.week.isoformat() }}</li>
-    {% endfor %}
-  </ul>
-</body>
-</html>
+{% extends "base.html" %}
+{% block title %}PCH1{% endblock %}
+{% block body_attrs %}data-clear-trials="{{ 1 if clear_trials else 0 }}"{% endblock %}
+{% block body %}
+<input class="tray-check" id="tray-toggle" type="checkbox">
+<div class="shell">
+  <main class="board">
+    <header class="mast">
+      <p class="eyebrow">Morning board</p>
+      <h1 class="mark">PCH1</h1>
+      <p class="meta">
+        {% if board.weeks %}
+        <span class="num">{{ board.weeks[0].isoformat() }}{% if board.weeks|length > 1 %} — {{ board.weeks[-1].isoformat() }}{% endif %}</span>
+        {% endif %}
+        <span class="num">{{ board.series|length }} SKUs</span>
+      </p>
+    </header>
+
+    <section class="exceptions" aria-labelledby="stockouts-title">
+      <h2 id="stockouts-title">Stockouts</h2>
+      {% if board.stockouts %}
+      <div class="rows">
+        {% for row in board.stockouts %}
+        <details class="exception">
+          <summary>
+            <span class="identity">
+              <span class="part">{{ row.part }}</span>
+              <span class="desc">{{ row.description }}</span>
+            </span>
+            <span class="when num">{{ row.week.isoformat() }}</span>
+            <span class="gap num">{{ "%g"|format(row.cases_short) }} short</span>
+            <ol class="rail">
+              {% for week in board.weeks %}
+              <li class="rail-cell{% if week == row.week %} is-break{% endif %}" title="{{ week.isoformat() }}">
+                <span class="sr">{{ week.isoformat() }}{% if week == row.week %} first stockout{% endif %}</span>
+              </li>
+              {% endfor %}
+            </ol>
+          </summary>
+          {% for series in board.series if series.part == row.part %}
+          <table class="weeks">
+            <thead>
+              <tr>
+                <th>Week</th>
+                <th>Forecast</th>
+                <th>Production</th>
+                <th>Trials</th>
+                <th>Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for week in series.weeks %}
+              {% set i = loop.index0 %}
+              <tr>
+                <td>{{ week.isoformat() }}</td>
+                <td>{{ "%g"|format(series.forecast[i]) }}</td>
+                <td>{{ "%g"|format(series.production[i]) }}</td>
+                <td>{{ "%g"|format(series.trials[i]) }}</td>
+                <td{% if series.stock[i] < 0 %} class="neg"{% endif %}>{{ "%g"|format(series.stock[i]) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endfor %}
+        </details>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="empty">No projected stockouts on PCH1 for this horizon.</p>
+      {% endif %}
+    </section>
+
+    <section class="cover-block" aria-labelledby="cover-title">
+      <h2 id="cover-title">Cover</h2>
+      <p class="disclaimer">Above {{ cover_n }} weeks. {{ cover_n_label }}</p>
+      {% if board.cover %}
+      <div class="rows">
+        {% for row in board.cover %}
+        <details class="exception cover-row">
+          <summary>
+            <span class="identity">
+              <span class="part">{{ row.part }}</span>
+              <span class="desc">{{ row.description }}</span>
+            </span>
+            <span class="when num">{{ row.week.isoformat() }}</span>
+            <span class="gap num">{{ "%g"|format(row.cover_weeks) }} wk</span>
+            <ol class="rail">
+              {% for week in board.weeks %}
+              <li class="rail-cell{% if week == row.week %} is-cover{% endif %}" title="{{ week.isoformat() }}">
+                <span class="sr">{{ week.isoformat() }}{% if week == row.week %} cover{% endif %}</span>
+              </li>
+              {% endfor %}
+            </ol>
+          </summary>
+          {% for series in board.series if series.part == row.part %}
+          <table class="weeks">
+            <thead>
+              <tr>
+                <th>Week</th>
+                <th>Forecast</th>
+                <th>Production</th>
+                <th>Trials</th>
+                <th>Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for week in series.weeks %}
+              {% set i = loop.index0 %}
+              <tr>
+                <td>{{ week.isoformat() }}</td>
+                <td>{{ "%g"|format(series.forecast[i]) }}</td>
+                <td>{{ "%g"|format(series.production[i]) }}</td>
+                <td>{{ "%g"|format(series.trials[i]) }}</td>
+                <td{% if series.stock[i] < 0 %} class="neg"{% endif %}>{{ "%g"|format(series.stock[i]) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endfor %}
+        </details>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
+
+    {% if board.warnings %}
+    <details class="notes">
+      <summary>Extract notes ({{ board.warnings|length }})</summary>
+      <ul>
+        {% for warning in board.warnings %}
+        <li>{{ warning.message }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </main>
+
+  <aside class="tray" id="trial-tray">
+    <h2>Trial runs</h2>
+    <p class="disclaimer">Session only. Nothing is written back to Unity.</p>
+    <form class="trial-form" id="trial-form">
+      <label>
+        <span>SKU</span>
+        <select name="sku">
+          {% for row in board.series %}
+          <option value="{{ row.part }}">{{ row.part }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Week</span>
+        <select name="week">
+          {% for week in board.weeks %}
+          <option value="{{ week.isoformat() }}">{{ week.isoformat() }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Cases</span>
+        <input name="cases" type="number" min="0" step="1" inputmode="numeric">
+      </label>
+      <button type="button">Stack trial</button>
+    </form>
+    <ul class="trial-list" id="trials"></ul>
+    <a class="plan" href="{{ url_for('session_plan') }}">Download session plan</a>
+  </aside>
+</div>
+<label class="tray-toggle" for="tray-toggle">Add trial run</label>
+<script src="{{ url_for('static', filename='board.js') }}"></script>
+{% endblock %}

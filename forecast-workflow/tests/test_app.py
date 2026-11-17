@@ -59,6 +59,17 @@ def test_load_error_names_file(tmp_path):
     assert b"stkavail" in rv.data.lower() or b"Missing" in rv.data
 
 
+def test_board_lists_stockout_and_disclaimer(tmp_path):
+    # opening 0, forecast 10, production 0 → stockout week W1
+    c = _client(tmp_path)
+    loaded = _post_extracts(c, tmp_path, opening=0, forecast=10, production=0)
+    assert loaded.status_code in (302, 303)
+    board = c.get("/board")
+    assert board.status_code == 200
+    assert b"CHOC450" in board.data
+    assert b"starter default" in board.data
+
+
 def test_board_without_load_redirects_home(tmp_path):
     c = _client(tmp_path)
     rv = c.get("/board")
