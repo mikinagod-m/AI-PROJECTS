@@ -52,6 +52,7 @@ class ExtractSet:
     forecast: dict[str, dict[date, float]]
     production: dict[str, dict[date, float]]
     warnings: list[LoadWarning]
+    sources: tuple[str, ...] = ()
 
 
 _SHEET_STOCK = "stkavail.new2"
@@ -88,6 +89,7 @@ def parse_extracts(stk_path, fcast_path, wo_path) -> ExtractSet:
         forecast,
         production,
         [*stock_warnings, *forecast_warnings, *production_warnings],
+        sources=(_file_name(stk_path), _file_name(fcast_path), _file_name(wo_path)),
     )
 
 
@@ -118,6 +120,7 @@ def parse_workbook_extracts(path) -> ExtractSet:
         forecast,
         production,
         [*stock_warnings, *forecast_warnings, *production_warnings],
+        sources=(_file_name(path),),
     )
 
 
@@ -191,7 +194,9 @@ def parse_pch1_grid(path) -> ExtractSet:
                 f"{_file_name(path)}: fallback: PCH1 grid",
             )
         )
-        return ExtractSet(opening, forecast, production, warnings)
+        return ExtractSet(
+            opening, forecast, production, warnings, sources=(_file_name(path),)
+        )
     finally:
         wb.close()
 
@@ -474,6 +479,7 @@ def project(extracts: ExtractSet, master: list[SkuMaster], trials: list[Trial], 
         key = (trial.sku, trial.week)
         trial_cases[key] = trial_cases.get(key, 0.0) + trial.cases
 
+    _require_master_overlap(extracts, master_parts)
     warnings = list(extracts.warnings)
     series: list[SkuSeries] = []
     stockouts: list[Stockout] = []
@@ -510,6 +516,22 @@ def project(extracts: ExtractSet, master: list[SkuMaster], trials: list[Trial], 
         if flag is not None:
             cover.append(flag)
     return Board(series, stockouts, cover, warnings, weeks)
+
+
+def _require_master_overlap(extracts: ExtractSet, master_parts: set[str]) -> None:
+    """Reject a load whose extracts name none of the line-master SKUs.
+
+    A partial hit still projects; missing SKUs warn one by one in the loop below.
+    """
+    if not master_parts:
+        return
+    present = set(extracts.opening) | set(extracts.forecast) | set(extracts.production)
+    if master_parts & present:
+        return
+    detail = "no line-master part numbers in opening, forecast, or production"
+    if extracts.sources:
+        raise ParseError(f"{', '.join(extracts.sources)}: {detail}")
+    raise ParseError(detail)
 
 
 def _opening_for(opening: dict[str, float], part: str) -> tuple[float, bool]:

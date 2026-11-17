@@ -19,7 +19,7 @@
   <form class="load-form" method="post" action="{{ url_for('settings_save') }}">
     <label class="file">
       <span>Weeks of cover</span>
-      <input name="cover_n" type="number" min="0" step="1" inputmode="numeric" value="{{ cover_n }}" required>
+      <input name="cover_n" type="number" min="1" step="1" inputmode="numeric" value="{{ cover_n }}" required>
     </label>
     <p class="disclaimer">Above {{ cover_n }} weeks. starter default — confirm with planning.</p>
     <button class="primary" type="submit">Save</button>

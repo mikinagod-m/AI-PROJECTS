@@ -55,6 +55,32 @@ def test_load_redirects_to_board(tmp_path):
     )
 
 
+def test_load_rejects_extracts_with_no_master_overlap(tmp_path):
+    c = _client(tmp_path)
+    stk, fc, wo = tmp_path / "other-stk.xlsx", tmp_path / "other-fcast.xlsx", tmp_path / "other-wo.xlsx"
+    write_stkavail(stk, [("OTHER", 50, 0)])
+    write_fcast(fc, [W1], [("OTHER", [4])])
+    write_wo(wo, [W1], [("OTHER", [1])])
+    rv = c.post(
+        "/load",
+        data={
+            "stkavail": (stk.open("rb"), "other-stk.xlsx"),
+            "fcastbydate": (fc.open("rb"), "other-fcast.xlsx"),
+            "wo_replen": (wo.open("rb"), "other-wo.xlsx"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert rv.status_code == 200
+    body = rv.data
+    assert b"other-stk.xlsx" in body
+    assert b"line-master" in body
+    assert b"No projected stockouts on PCH1 for this horizon." not in body
+    assert b'action="/load"' in body
+    board = c.get("/board")
+    assert board.status_code == 302
+    assert board.headers["Location"].endswith("/")
+
+
 def test_load_error_names_file(tmp_path):
     c = _client(tmp_path)
     rv = c.post("/load", data={}, content_type="multipart/form-data")
@@ -261,6 +287,16 @@ def test_settings_updates_cover_n(tmp_path):
     assert b"10" in rv.data
     assert b"starter default" in rv.data
     assert "confirm with planning" in rv.data.decode()
+
+
+def test_settings_rejects_cover_n_below_one(tmp_path):
+    c = _client(tmp_path)
+    for raw in ("0", "-3"):
+        rv = c.post("/settings", data={"cover_n": raw})
+        assert rv.status_code == 200
+        assert b"at least 1" in rv.data
+    page = c.get("/settings")
+    assert b'value="8"' in page.data
 
 
 def test_board_drops_cover_when_cover_n_rises(tmp_path):

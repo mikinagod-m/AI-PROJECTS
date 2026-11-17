@@ -113,6 +113,31 @@ def test_trial_invalid_sku():
         project(extracts, MASTER, [Trial("NOPE", W1, 1.0)])
 
 
+def test_zero_master_overlap_raises_and_names_files():
+    extracts = ExtractSet(
+        {"OTHER": 10.0},
+        {"OTHER": {W1: 1.0}},
+        {"OTHER": {W1: 0.0}},
+        [],
+        sources=("stk.xlsx", "fcast.xlsx", "wo.xlsx"),
+    )
+    with pytest.raises(ParseError, match="stk.xlsx"):
+        project(extracts, MASTER, [])
+
+
+def test_partial_master_overlap_still_projects_and_warns():
+    master = MASTER + [SkuMaster("STRAW450-032", "MOOSEBRK STRAW 10X450G SG", 112.0, "forecast")]
+    extracts = _ex(
+        {"CHOC450": 10.0, "OTHER": 5.0},
+        {"CHOC450": {W1: 1.0}},
+        {"CHOC450": {W1: 0.0}},
+    )
+    board = project(extracts, master, [])
+    assert [s.part for s in board.series] == ["CHOC450", "STRAW450-032"]
+    assert any(w.code == "missing_opening_stock" and "STRAW450-032" in w.message for w in board.warnings)
+    assert board.series[0].stock == [9.0]
+
+
 def test_horizon_includes_weeks_from_non_master_rows():
     # CHOC450 only has W1 forecast; OTHER's W3 production is still a horizon column.
     extracts = _ex(

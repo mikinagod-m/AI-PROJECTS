@@ -4,9 +4,10 @@ Flask app for Cheryl’s PCH1 Monday review: load Unity extracts, see stockouts 
 
 ## Run locally
 
-From this folder (with dependencies from `requirements.txt` installed):
+From this folder:
 
 ```bash
+pip install -r requirements.txt
 python app.py
 ```
 
@@ -17,7 +18,7 @@ Open **http://127.0.0.1:5053** (override with the `PORT` environment variable). 
 On **Load extracts**, Cheryl can either:
 
 1. **Primary:** upload three Unity exports — `stkavail`, `fcastbydate`, and `wo.replen` (Excel files).
-2. **Fallback:** upload one workbook that contains the same three sheet names (`stkavail.new2`, `fcastbydate.new`, `wo.replen`). This mirrors the filled **PCH1 Stock Planning Tracker** layout until live Unity pulls exist.
+2. **Fallback:** upload one workbook that contains the same three sheet names (`stkavail.new2`, `fcastbydate`, `wo.replen`). This mirrors the filled **PCH1 Stock Planning Tracker** layout until live Unity pulls exist.
 
 The board projects finished goods only; it does not replace Warwick’s material logic.
 

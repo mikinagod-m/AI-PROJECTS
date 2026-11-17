@@ -164,6 +164,12 @@ def create_app(db_path, upload_dir):
                 cover_n=get_cover_n(db_path),
                 error="Cover weeks must be a whole number",
             ), 200
+        if cover_n < 1:
+            return render_template(
+                "settings.html",
+                cover_n=get_cover_n(db_path),
+                error="Cover weeks must be at least 1",
+            ), 200
         set_cover_n(db_path, cover_n)
         return redirect(url_for("settings_page"))
 
