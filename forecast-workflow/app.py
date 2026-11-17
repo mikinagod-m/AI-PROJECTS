@@ -4,9 +4,11 @@ import uuid
 from datetime import date
 from io import BytesIO
 from pathlib import Path
+from zipfile import BadZipFile
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, session, url_for
 from openpyxl import Workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 from engine import ParseError, Trial, load_any, project, session_plan_rows
 from store import get_cover_n, list_skus
@@ -47,6 +49,12 @@ def create_app(db_path, upload_dir):
             return redirect(url_for("board_page"))
         except ParseError as exc:
             return render_template("load.html", error=exc.message), 200
+        except (BadZipFile, InvalidFileException):
+            names = ", ".join(path.name for path in saved) or "upload"
+            return render_template(
+                "load.html",
+                error=f"{names}: not a readable Excel file",
+            ), 200
         finally:
             for path in saved:
                 path.unlink(missing_ok=True)

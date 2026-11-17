@@ -90,6 +90,19 @@ def test_load_parse_error_names_file_without_traceback(tmp_path):
     assert list((tmp_path / "up").glob("*.xlsx")) == []
 
 
+def test_load_non_zip_names_file_without_traceback(tmp_path):
+    c = _client(tmp_path)
+    rv = c.post(
+        "/load",
+        data={"workbook": (BytesIO(b"this is not a spreadsheet"), "notes.xlsx")},
+        content_type="multipart/form-data",
+    )
+    assert rv.status_code == 200
+    assert b"notes.xlsx" in rv.data
+    assert b"Traceback" not in rv.data
+    assert list((tmp_path / "up").glob("*")) == []
+
+
 def test_post_board_applies_trial(tmp_path):
     c = _client(tmp_path)
     loaded = _post_extracts(c, tmp_path, opening=0, forecast=10, production=0)
