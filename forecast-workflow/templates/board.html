@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PCH1</title>
+</head>
+<body data-clear-trials="{{ 1 if clear_trials else 0 }}">
+  <h1>PCH1</h1>
+  <h2>Stockouts</h2>
+  {% if board.stockouts %}
+  <ul>
+    {% for row in board.stockouts %}
+    <li>{{ row.part }} {{ row.description }} {{ row.week.isoformat() }} {{ row.cases_short }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No projected stockouts on PCH1 for this horizon.</p>
+  {% endif %}
+  <h2>Cover</h2>
+  <ul>
+    {% for row in board.cover %}
+    <li>{{ row.part }} {{ row.description }} {{ row.week.isoformat() }}</li>
+    {% endfor %}
+  </ul>
+</body>
+</html>

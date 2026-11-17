@@ -538,6 +538,20 @@ def _first_stockout(part, description, weeks, stock) -> Optional[Stockout]:
     return None
 
 
+def session_plan_rows(trials, master) -> list[tuple]:
+    """Snapshot rows for the session-plan workbook: part, description, week, cases."""
+    descriptions = {sku.part: sku.description for sku in master}
+    return [
+        (
+            trial.sku,
+            descriptions.get(trial.sku, ""),
+            trial.week,
+            float(trial.cases),
+        )
+        for trial in trials
+    ]
+
+
 def _cover_flag(part, description, weeks, forecast, stock, cover_n) -> Optional[CoverFlag]:
     best_week = None
     best_cover = None

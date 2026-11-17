@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PCH1 load</title>
+</head>
+<body>
+  <h1>PCH1</h1>
+  {% if error %}
+  <p role="alert">{{ error }}</p>
+  {% endif %}
+  <form action="/load" method="post" enctype="multipart/form-data">
+    <label>stkavail <input type="file" name="stkavail"></label>
+    <label>fcastbydate <input type="file" name="fcastbydate"></label>
+    <label>wo_replen <input type="file" name="wo_replen"></label>
+    <label>workbook <input type="file" name="workbook"></label>
+    <button type="submit">Load</button>
+  </form>
+</body>
+</html>
