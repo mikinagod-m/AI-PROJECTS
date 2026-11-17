@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}PCH1{% endblock %}
-{% block body_attrs %}data-clear-trials="{{ 1 if clear_trials else 0 }}"{% endblock %}
+{% block body_attrs %}data-clear-trials="{{ 1 if clear_trials else 0 }}" data-master='{{ master_parts|tojson }}' data-weeks='{{ weeks|tojson }}'{% endblock %}
 {% block body %}
 <input class="tray-check" id="tray-toggle" type="checkbox">
 <div class="shell">
@@ -159,8 +159,9 @@
         <span>Cases</span>
         <input name="cases" type="number" min="0" step="1" inputmode="numeric">
       </label>
-      <button type="button">Stack trial</button>
+      <button type="submit">Stack trial</button>
     </form>
+    <p class="alert" id="trial-error" role="alert" hidden></p>
     <ul class="trial-list" id="trials"></ul>
     <a class="plan" href="{{ url_for('session_plan') }}">Download session plan</a>
   </aside>

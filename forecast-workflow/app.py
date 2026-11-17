@@ -71,6 +71,8 @@ def create_app(db_path, upload_dir):
             clear_trials=clear_trials,
             cover_n=get_cover_n(db_path),
             cover_n_label="starter default — confirm with planning",
+            master_parts=[sku.part for sku in list_skus(db_path)],
+            weeks=[week.isoformat() for week in board.weeks],
         )
 
     @app.post("/board")

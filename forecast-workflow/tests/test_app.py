@@ -1,4 +1,5 @@
 # tests/test_app.py
+import json
 import re
 from datetime import date
 from io import BytesIO
@@ -204,6 +205,40 @@ def test_get_session_plan_uses_last_posted_trials(tmp_path):
     wb = load_workbook(BytesIO(rv.data))
     assert wb.active.cell(2, 1).value == "CHOC450"
     assert wb.active.cell(2, 4).value == 4
+
+
+def _html_attr(html, name):
+    match = re.search(rf"\b{name}='([^']*)'", html)
+    assert match, name
+    return match.group(1)
+
+
+def test_board_publishes_master_weeks_and_clears_once(tmp_path):
+    c = _client(tmp_path)
+    loaded = _post_extracts(c, tmp_path, opening=0, forecast=10, production=0)
+    assert loaded.status_code in (302, 303)
+    board = c.get("/board")
+    html = board.data.decode()
+    assert 'data-clear-trials="1"' in html
+    master = json.loads(_html_attr(html, "data-master"))
+    weeks = json.loads(_html_attr(html, "data-weeks"))
+    assert "CHOC450" in master
+    assert "2026-11-16" in weeks
+    again = c.get("/board")
+    assert 'data-clear-trials="0"' in again.data.decode()
+
+
+def test_board_js_stores_trials_and_downloads_plan():
+    js = Path(__file__).resolve().parents[1].joinpath("static", "board.js").read_text(
+        encoding="utf-8"
+    )
+    assert "pch1.trials" in js
+    assert "sessionStorage" in js
+    assert 'fetch("/board"' in js or "fetch('/board'" in js
+    assert "session-plan.xlsx" in js
+    assert "data-clear-trials" in js
+    assert "data-master" in js
+    assert "data-weeks" in js
 
 
 def test_session_plan_rows_uses_master_description():
