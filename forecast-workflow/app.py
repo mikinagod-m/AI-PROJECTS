@@ -11,7 +11,7 @@ from openpyxl import Workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
 from engine import ParseError, SkuMaster, Trial, cases_per_hour, load_any, project, session_plan_rows
-from store import delete_sku, get_cover_n, list_skus, set_cover_n, upsert_sku
+from store import delete_sku, get_cover_n, init_db, list_skus, seed_if_empty, set_cover_n, upsert_sku
 
 _EXTRACT_FIELDS = ("stkavail", "fcastbydate", "wo_replen")
 _PLAN_HEADERS = ("Part number", "Description", "Week", "Cases")
@@ -324,3 +324,14 @@ def _plan_workbook(trials, master):
         as_attachment=True,
         download_name="session-plan.xlsx",
     )
+
+
+if __name__ == "__main__":
+    root = Path(__file__).resolve().parent
+    db = root / "pch1.sqlite"
+    uploads = root / "uploads"
+    init_db(db)
+    seed_if_empty(db)
+    application = create_app(db_path=db, upload_dir=uploads)
+    port = int(os.environ.get("PORT", 5053))
+    application.run(host="0.0.0.0", port=port, debug=False)
