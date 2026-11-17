@@ -7,7 +7,7 @@
   var form = document.getElementById("trial-form");
   var list = document.getElementById("trials");
   var errorNode = document.getElementById("trial-error");
-  var requestSeq = 0;
+  var inFlight = false;
 
   if (document.body.getAttribute("data-clear-trials") === "1") {
     sessionStorage.removeItem(KEY);
@@ -181,6 +181,7 @@
       button.type = "button";
       button.setAttribute("aria-label", "Remove " + trial.sku + " " + trial.week);
       button.addEventListener("click", function () {
+        if (inFlight) return;
         commit(readTrials().filter(function (_, itemIndex) { return itemIndex !== index; }));
       });
       item.appendChild(button);
@@ -189,12 +190,13 @@
   }
 
   function commit(trials) {
-    var attempt = ++requestSeq;
+    if (inFlight) return;
+    inFlight = true;
     var previous = readTrials();
     writeTrials(trials);
     renderList(trials);
     showError("");
-    return fetch("/board", {
+    fetch("/board", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ trials: trials }),
@@ -203,14 +205,14 @@
         return { ok: res.ok, data: data };
       });
     }).then(function (result) {
-      if (attempt !== requestSeq) return;
       if (!result.ok) throw new Error((result.data && result.data.error) || "Trial run failed");
       paintBoard(result.data);
     }).catch(function (err) {
-      if (attempt !== requestSeq) return;
       writeTrials(previous);
       renderList(previous);
       showError(err.message || "Trial run failed");
+    }).then(function () {
+      inFlight = false;
     });
   }
 
@@ -247,6 +249,7 @@
     fillSelect(form.elements.week, readJsonAttr("data-weeks"));
     form.addEventListener("submit", function (event) {
       event.preventDefault();
+      if (inFlight) return;
       var casesInput = form.elements.cases;
       var qty = Number(casesInput.value);
       if (casesInput.value === "" || !Number.isFinite(qty)) return;
