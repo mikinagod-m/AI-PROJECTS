@@ -314,6 +314,15 @@ input[type="file"] {
   letter-spacing: 0.04em;
 }
 
+.tray-check:focus-visible {
+  outline: none;
+}
+
+.tray-check:focus-visible ~ .tray-toggle {
+  outline: 2px solid var(--powder);
+  outline-offset: -4px;
+}
+
 @media (max-width: 899px) {
   .tray-check:checked ~ .shell .tray {
     display: block;
@@ -352,6 +361,8 @@ input[type="file"] {
     min-height: 100vh;
     border-left: 1px solid var(--kraft);
   }
+
+  .tray-check { display: none; }
 
   .tray-toggle { display: none; }
 }

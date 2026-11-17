@@ -1,6 +1,8 @@
 # tests/test_app.py
+import re
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
@@ -66,8 +68,31 @@ def test_board_lists_stockout_and_disclaimer(tmp_path):
     assert loaded.status_code in (302, 303)
     board = c.get("/board")
     assert board.status_code == 200
-    assert b"CHOC450" in board.data
+    assert b"is-break" in board.data
+    assert b"10 short" in board.data
     assert b"starter default" in board.data
+    assert b"No projected stockouts on PCH1 for this horizon." not in board.data
+
+
+def test_board_healthy_load_has_empty_stockout_sentence(tmp_path):
+    # opening 100, forecast 10, production 0 → stock stays positive
+    c = _client(tmp_path)
+    loaded = _post_extracts(c, tmp_path, opening=100, forecast=10, production=0)
+    assert loaded.status_code in (302, 303)
+    board = c.get("/board")
+    assert board.status_code == 200
+    assert b"No projected stockouts on PCH1 for this horizon." in board.data
+    assert b"is-break" not in board.data
+    assert b"10 short" not in board.data
+
+
+def test_tray_focus_ring_is_on_the_bar():
+    css = Path(__file__).resolve().parents[1].joinpath("static", "app.css").read_text(
+        encoding="utf-8"
+    )
+    assert ".tray-check:focus-visible ~ .tray-toggle" in css
+    desktop = css.split("@media (min-width: 900px)", 1)[1]
+    assert re.search(r"\.tray-check\s*\{\s*display:\s*none\s*;", desktop)
 
 
 def test_board_without_load_redirects_home(tmp_path):
