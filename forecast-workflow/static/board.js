@@ -1,11 +1,13 @@
 /* Session trials live in sessionStorage. A new successful load sets
-   data-clear-trials="1" once; a refresh posts the stored tray back. */
+   data-clear-trials="1" once. Every board load posts the stored tray,
+   including [], so a closed tab cannot leave the last in-memory run. */
 (function () {
   var KEY = "pch1.trials";
   var EMPTY_STOCKOUTS = "No projected stockouts on PCH1 for this horizon.";
   var form = document.getElementById("trial-form");
   var list = document.getElementById("trials");
   var errorNode = document.getElementById("trial-error");
+  var requestSeq = 0;
 
   if (document.body.getAttribute("data-clear-trials") === "1") {
     sessionStorage.removeItem(KEY);
@@ -187,6 +189,7 @@
   }
 
   function commit(trials) {
+    var attempt = ++requestSeq;
     var previous = readTrials();
     writeTrials(trials);
     renderList(trials);
@@ -197,10 +200,14 @@
       body: JSON.stringify({ trials: trials }),
     }).then(function (res) {
       return res.json().then(function (data) {
-        if (!res.ok) throw new Error((data && data.error) || "Trial run failed");
-        return data;
+        return { ok: res.ok, data: data };
       });
-    }).then(paintBoard).catch(function (err) {
+    }).then(function (result) {
+      if (attempt !== requestSeq) return;
+      if (!result.ok) throw new Error((result.data && result.data.error) || "Trial run failed");
+      paintBoard(result.data);
+    }).catch(function (err) {
+      if (attempt !== requestSeq) return;
       writeTrials(previous);
       renderList(previous);
       showError(err.message || "Trial run failed");
@@ -258,6 +265,5 @@
   if (plan) plan.addEventListener("click", downloadPlan);
 
   var stored = readTrials();
-  if (stored.length) commit(stored);
-  else renderList(stored);
+  commit(stored);
 })();

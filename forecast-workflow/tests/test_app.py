@@ -239,6 +239,10 @@ def test_board_js_stores_trials_and_downloads_plan():
     assert "data-clear-trials" in js
     assert "data-master" in js
     assert "data-weeks" in js
+    assert "if (stored.length)" not in js
+    assert "commit(stored)" in js
+    assert "requestSeq" in js
+    assert "attempt !== requestSeq" in js
 
 
 def test_session_plan_rows_uses_master_description():
