@@ -121,6 +121,104 @@ def parse_workbook_extracts(path) -> ExtractSet:
     )
 
 
+def parse_pch1_grid(path) -> ExtractSet:
+    """Read a filled PCH1 tracker grid. Cached opening, forecast, and production only."""
+    wb = load_workbook(path, data_only=True)
+    try:
+        ws = _require_sheet(wb, path, "PCH1")
+        week_cols = []
+        for col in range(5, (ws.max_column or 0) + 1):
+            week = _as_week(ws.cell(1, col).value)
+            if week is not None:
+                week_cols.append((col, week))
+        if not week_cols:
+            raise ParseError(f"{_file_name(path)}: sheet PCH1 has no dated week columns")
+        opening: dict[str, float] = {}
+        forecast: dict[str, dict[date, float]] = {}
+        production: dict[str, dict[date, float]] = {}
+        warnings: list[LoadWarning] = []
+        source = _source(path, "PCH1")
+        row = 2
+        last = ws.max_row or 1
+        while row <= last:
+            if _header_text(ws.cell(row, 4).value) != "forecast":
+                row += 1
+                continue
+            prod_row = row + 1
+            stock_row = row + 2
+            if stock_row > last:
+                raise ParseError(
+                    f"{_file_name(path)}: sheet PCH1 forecast block at row {row} is incomplete"
+                )
+            if _header_text(ws.cell(prod_row, 4).value) != "production":
+                raise ParseError(
+                    f"{_file_name(path)}: sheet PCH1 row {prod_row} expected PRODUCTION"
+                )
+            if _header_text(ws.cell(stock_row, 2).value) != "stock available":
+                raise ParseError(
+                    f"{_file_name(path)}: sheet PCH1 row {stock_row} expected STOCK AVAILABLE"
+                )
+            part = _part_key(ws.cell(row, 1).value)
+            if part is not None:
+                by_forecast = forecast.setdefault(part, {})
+                by_production = production.setdefault(part, {})
+                for col, week in week_cols:
+                    by_forecast[week] = _quantity(
+                        ws.cell(row, col).value,
+                        warnings,
+                        source=source,
+                        part=part,
+                        week=week,
+                    )
+                    by_production[week] = _quantity(
+                        ws.cell(prod_row, col).value,
+                        warnings,
+                        source=source,
+                        part=part,
+                        week=week,
+                    )
+                opening[part] = _quantity(
+                    ws.cell(stock_row, 4).value,
+                    warnings,
+                    source=source,
+                    part=part,
+                    week=None,
+                )
+            row += 3
+        warnings.append(
+            LoadWarning(
+                "fallback_pch1_grid",
+                f"{_file_name(path)}: fallback: PCH1 grid",
+            )
+        )
+        return ExtractSet(opening, forecast, production, warnings)
+    finally:
+        wb.close()
+
+
+def load_any(paths: list[Path]) -> ExtractSet:
+    if len(paths) == 3:
+        return parse_extracts(paths[0], paths[1], paths[2])
+    if len(paths) != 1:
+        raise ParseError("expected 3 extract files or 1 workbook")
+    path = paths[0]
+    wb = load_workbook(path, data_only=False)
+    try:
+        folded = {name.strip().casefold() for name in wb.sheetnames}
+    finally:
+        wb.close()
+    required = {
+        _SHEET_STOCK.casefold(),
+        _SHEET_FORECAST.casefold(),
+        _SHEET_WO.casefold(),
+    }
+    if required <= folded:
+        return parse_workbook_extracts(path)
+    if "pch1" in folded:
+        return parse_pch1_grid(path)
+    raise ParseError(f"{_file_name(path)}: sheet PCH1 not found")
+
+
 def _read_opening(path):
     wb = load_workbook(path, data_only=False)
     try:
