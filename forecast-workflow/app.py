@@ -10,8 +10,8 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 from openpyxl import Workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
-from engine import ParseError, Trial, load_any, project, session_plan_rows
-from store import get_cover_n, list_skus
+from engine import ParseError, SkuMaster, Trial, cases_per_hour, load_any, project, session_plan_rows
+from store import delete_sku, get_cover_n, list_skus, set_cover_n, upsert_sku
 
 _EXTRACT_FIELDS = ("stkavail", "fcastbydate", "wo_replen")
 _PLAN_HEADERS = ("Part number", "Description", "Week", "Cases")
@@ -111,7 +111,64 @@ def create_app(db_path, upload_dir):
         except ParseError as exc:
             return jsonify({"error": exc.message}), 400
 
+    @app.get("/master")
+    def master_page():
+        return render_template("master.html", skus=list_skus(db_path), error=None)
+
+    @app.post("/master")
+    def master_save():
+        try:
+            upsert_sku(db_path, _sku_from_form())
+        except ParseError as exc:
+            return render_template(
+                "master.html",
+                skus=list_skus(db_path),
+                error=exc.message,
+            ), 200
+        return redirect(url_for("master_page"))
+
+    @app.post("/master/delete")
+    def master_delete():
+        part = (request.form.get("part") or "").strip()
+        if part:
+            delete_sku(db_path, part)
+        return redirect(url_for("master_page"))
+
+    @app.get("/settings")
+    def settings_page():
+        return render_template(
+            "settings.html",
+            cover_n=get_cover_n(db_path),
+            error=None,
+        )
+
+    @app.post("/settings")
+    def settings_save():
+        raw = (request.form.get("cover_n") or "").strip()
+        try:
+            cover_n = int(raw)
+        except ValueError:
+            return render_template(
+                "settings.html",
+                cover_n=get_cover_n(db_path),
+                error="Cover weeks must be a whole number",
+            ), 200
+        set_cover_n(db_path, cover_n)
+        return redirect(url_for("settings_page"))
+
     return app
+
+
+def _sku_from_form() -> SkuMaster:
+    part = (request.form.get("part") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    if not part or not description:
+        raise ParseError("Part and description are required")
+    try:
+        rate = cases_per_hour(request.form.get("cases_per_hour", ""))
+    except ValueError as exc:
+        raise ParseError("Cases per hour must be a number") from exc
+    return SkuMaster(part, description, rate, "forecast")
 
 
 def _receive_extracts(files, folder: Path, saved: list[Path]) -> list[Path]:

@@ -271,6 +271,7 @@ a { color: var(--ink); }
 
 select,
 input[type="number"],
+input[type="text"],
 input[type="file"] {
   min-height: 44px;
   width: 100%;
@@ -365,4 +366,47 @@ input[type="file"] {
   .tray-check { display: none; }
 
   .tray-toggle { display: none; }
+}
+
+.meta a { color: inherit; }
+
+.line { margin-bottom: 28px; }
+
+.line-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.rows.line .line-row:last-child { border-bottom: 1px solid var(--rule); }
+
+.line-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.line-foot .rate { width: 8rem; min-height: 0; }
+
+.line-foot .rate input {
+  width: 8rem;
+  text-align: right;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.row-actions form { display: flex; }
+
+.row-actions button {
+  border: 1px solid var(--rule);
+  background: transparent;
+  padding: 0 12px;
 }

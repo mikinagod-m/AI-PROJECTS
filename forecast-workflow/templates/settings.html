@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Cover weeks · PCH1{% endblock %}
+{% block body %}
+<main class="board">
+  <header class="mast">
+    <p class="eyebrow">Cover weeks</p>
+    <h1 class="mark">PCH1</h1>
+    <p class="meta">
+      <a href="{{ url_for('board_page') }}">Board</a>
+      <span aria-hidden="true">·</span>
+      <a href="{{ url_for('master_page') }}">Line master</a>
+    </p>
+  </header>
+
+  {% if error %}
+  <p class="alert" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <form class="load-form" method="post" action="{{ url_for('settings_save') }}">
+    <label class="file">
+      <span>Weeks of cover</span>
+      <input name="cover_n" type="number" min="0" step="1" inputmode="numeric" value="{{ cover_n }}" required>
+    </label>
+    <p class="disclaimer">List a SKU when cover is above this many weeks.</p>
+    <button class="primary" type="submit">Save</button>
+  </form>
+</main>
+{% endblock %}

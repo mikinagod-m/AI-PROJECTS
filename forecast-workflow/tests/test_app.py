@@ -246,6 +246,21 @@ def test_board_js_stores_trials_and_downloads_plan():
     assert "requestSeq" not in js
 
 
+def test_master_seed_visible(tmp_path):
+    c = _client(tmp_path)
+    rv = c.get("/master")
+    assert b"MDP750VEND-129" in rv.data
+    assert b"SUPSKIM-123" in rv.data
+
+
+def test_settings_updates_cover_n(tmp_path):
+    c = _client(tmp_path)
+    c.post("/settings", data={"cover_n": "10"})
+    # load a board that would flag cover at 8 but not 10 if possible, or just read page
+    rv = c.get("/settings")
+    assert b"10" in rv.data
+
+
 def test_session_plan_rows_uses_master_description():
     rows = session_plan_rows(
         [Trial("CHOC450", W1, 10)],

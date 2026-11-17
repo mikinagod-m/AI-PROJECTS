@@ -13,6 +13,9 @@
         <span class="num">{{ board.weeks[0].isoformat() }}{% if board.weeks|length > 1 %} — {{ board.weeks[-1].isoformat() }}{% endif %}</span>
         {% endif %}
         <span class="num">{{ board.series|length }} SKUs</span>
+        <a href="{{ url_for('master_page') }}">Line master</a>
+        <span aria-hidden="true">·</span>
+        <a href="{{ url_for('settings_page') }}">Cover weeks</a>
       </p>
     </header>
 

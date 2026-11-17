@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Line master · PCH1{% endblock %}
+{% block body %}
+<main class="board">
+  <header class="mast">
+    <p class="eyebrow">Line master</p>
+    <h1 class="mark">PCH1</h1>
+    <p class="meta">
+      <a href="{{ url_for('board_page') }}">Board</a>
+      <span aria-hidden="true">·</span>
+      <a href="{{ url_for('settings_page') }}">Cover weeks</a>
+    </p>
+  </header>
+
+  {% if error %}
+  <p class="alert" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <div class="rows line">
+    {% for sku in skus %}
+    <article class="line-row">
+      <p class="part">{{ sku.part }}</p>
+      <input form="sku-{{ loop.index }}" name="description" type="text" value="{{ sku.description }}" required aria-label="Description for {{ sku.part }}">
+      <div class="line-foot">
+        <label class="file rate">
+          <span>Cases/hour</span>
+          <input form="sku-{{ loop.index }}" name="cases_per_hour" type="text" inputmode="decimal" value="{% if sku.cases_per_hour is not none %}{{ '%g'|format(sku.cases_per_hour) }}{% endif %}" aria-label="Cases per hour for {{ sku.part }}">
+        </label>
+        <div class="row-actions">
+          <form id="sku-{{ loop.index }}" method="post" action="{{ url_for('master_save') }}">
+            <input type="hidden" name="part" value="{{ sku.part }}">
+            <button type="submit">Save</button>
+          </form>
+          <form method="post" action="{{ url_for('master_delete') }}">
+            <input type="hidden" name="part" value="{{ sku.part }}">
+            <button type="submit">Remove</button>
+          </form>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <h2>Add a part</h2>
+  <form class="load-form" method="post" action="{{ url_for('master_save') }}">
+    <label class="file">
+      <span>Part</span>
+      <input name="part" type="text" required autocomplete="off">
+    </label>
+    <label class="file">
+      <span>Description</span>
+      <input name="description" type="text" required autocomplete="off">
+    </label>
+    <label class="file">
+      <span>Cases/hour</span>
+      <input name="cases_per_hour" type="text" inputmode="decimal" autocomplete="off">
+    </label>
+    <button class="primary" type="submit">Add part</button>
+  </form>
+</main>
+{% endblock %}
