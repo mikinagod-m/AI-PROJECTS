@@ -259,6 +259,22 @@ def test_settings_updates_cover_n(tmp_path):
     # load a board that would flag cover at 8 but not 10 if possible, or just read page
     rv = c.get("/settings")
     assert b"10" in rv.data
+    assert b"starter default" in rv.data
+    assert "confirm with planning" in rv.data.decode()
+
+
+def test_board_drops_cover_when_cover_n_rises(tmp_path):
+    # opening 100, forecast 5 → stock 95, cover 19 weeks. Flagged at 8, not at 30.
+    c = _client(tmp_path)
+    loaded = _post_extracts(c, tmp_path, opening=100, forecast=5, production=0)
+    assert loaded.status_code in (302, 303)
+    before = c.get("/board")
+    assert b"cover-row" in before.data
+    assert b"CHOC450" in before.data
+    c.post("/settings", data={"cover_n": "30"})
+    after = c.get("/board")
+    assert b"cover-row" not in after.data
+    assert b"Above 30 weeks" in after.data
 
 
 def test_session_plan_rows_uses_master_description():

@@ -61,17 +61,28 @@ def create_app(db_path, upload_dir):
 
     @app.get("/board")
     def board_page():
-        board = _current_board(app)
-        if board is None:
+        sid = session.get("sid")
+        extracts = app.config["EXTRACTS"].get(sid) if sid else None
+        if extracts is None:
             return redirect(url_for("load_form"))
+        master = list_skus(db_path)
+        cover_n = get_cover_n(db_path)
+        trials = _parse_trials({"trials": session.get("trials") or []})
+        try:
+            board = project(extracts, master, trials, cover_n=cover_n)
+        except ParseError:
+            trials = []
+            session["trials"] = []
+            board = project(extracts, master, trials, cover_n=cover_n)
+        app.config["BOARDS"][sid] = board
         clear_trials = bool(session.pop("clear_trials", False))
         return render_template(
             "board.html",
             board=board,
             clear_trials=clear_trials,
-            cover_n=get_cover_n(db_path),
+            cover_n=cover_n,
             cover_n_label="starter default — confirm with planning",
-            master_parts=[sku.part for sku in list_skus(db_path)],
+            master_parts=[sku.part for sku in master],
             weeks=[week.isoformat() for week in board.weeks],
         )
 
@@ -200,13 +211,6 @@ def _keep(upload, folder: Path, saved: list[Path]) -> Path:
     upload.save(dest)
     saved.append(dest)
     return dest
-
-
-def _current_board(app):
-    sid = session.get("sid")
-    if not sid:
-        return None
-    return app.config["BOARDS"].get(sid)
 
 
 def _trials_from_request() -> list[Trial]:
