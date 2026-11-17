@@ -111,3 +111,18 @@ def test_trial_invalid_sku():
     extracts = _ex({"CHOC450": 0.0}, {"CHOC450": {W1: 0.0}}, {"CHOC450": {W1: 0.0}})
     with pytest.raises(ParseError, match="SKU"):
         project(extracts, MASTER, [Trial("NOPE", W1, 1.0)])
+
+
+def test_horizon_includes_weeks_from_non_master_rows():
+    # CHOC450 only has W1 forecast; OTHER's W3 production is still a horizon column.
+    extracts = _ex(
+        {"CHOC450": 10.0},
+        {"CHOC450": {W1: 4.0}},
+        {"OTHER": {W3: 7.0}},
+    )
+    board = project(extracts, MASTER, [Trial("CHOC450", W3, 3.0)])
+    assert board.weeks == [W1, W3]
+    s = board.series[0]
+    assert s.production == [0.0, 0.0]
+    assert s.trials == [0.0, 3.0]
+    assert s.stock == [6.0, 9.0]

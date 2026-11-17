@@ -364,13 +364,9 @@ class Board:
 
 # PHASE 2: material netter (BOM, PO, lead time) — not implemented
 def project(extracts: ExtractSet, master: list[SkuMaster], trials: list[Trial], cover_n: int = 8) -> Board:
-    parts = [sku.part for sku in master]
-    weeks = horizon_weeks(
-        {part: extracts.forecast.get(part, {}) for part in parts},
-        {part: extracts.production.get(part, {}) for part in parts},
-    )
+    weeks = horizon_weeks(extracts.forecast, extracts.production)
     week_set = set(weeks)
-    master_parts = set(parts)
+    master_parts = {sku.part for sku in master}
     trial_cases: dict[tuple[str, date], float] = {}
     for trial in trials:
         if trial.sku not in master_parts:
